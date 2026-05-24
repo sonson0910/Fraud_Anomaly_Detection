@@ -50,6 +50,7 @@ python src/customer_risk_advisor.py --transaction-id TRX0000001
 - `outputs/model_metrics.json`: evaluation metrics.
 - `outputs/figures/`: report figures.
 - `report/final_report_outline.md`: Vietnamese final report outline.
+- `docs/PROJECT_WORKFLOW.md`: Vietnamese project workflow and onboarding guide.
 
 ## Validate
 

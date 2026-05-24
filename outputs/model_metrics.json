@@ -1,0 +1,141 @@
+{
+  "rows_scored": 150000,
+  "synthetic_anomaly_count": 2700,
+  "threshold_for_positive": 60,
+  "precision_at_threshold": 0.9974,
+  "recall_at_threshold": 0.2889,
+  "f1_at_threshold": 0.448,
+  "confusion_matrix": [
+    [
+      147298,
+      2
+    ],
+    [
+      1920,
+      780
+    ]
+  ],
+  "average_precision_pr_auc": 0.9597,
+  "roc_auc": 0.9992,
+  "precision_at_100": 1.0,
+  "recall_at_100": 0.037,
+  "precision_at_500": 1.0,
+  "recall_at_500": 0.1852,
+  "precision_at_1000": 0.994,
+  "recall_at_1000": 0.3681,
+  "precision_at_2500": 0.9308,
+  "recall_at_2500": 0.8619,
+  "risk_band_distribution": {
+    "Low": 146866,
+    "Medium": 2352,
+    "High": 669,
+    "Critical": 113
+  },
+  "top_anomaly_types_in_critical": {
+    "MONEY_LAUNDERING_PROXY": 110,
+    "BEHAVIORAL_OUTLIER": 2,
+    "ACCOUNT_TAKEOVER": 1
+  },
+  "stability_by_period": {
+    "2024-2026 digital acceleration": {
+      "rows": 48624,
+      "anomaly_rate": 0.0184,
+      "avg_risk_score": 10.3341,
+      "high_or_critical_count": 265,
+      "precision_at_top_1pct": 0.9959,
+      "roc_auc": 0.9992,
+      "pr_auc": 0.963
+    },
+    "2022-2023 recovery": {
+      "rows": 40317,
+      "anomaly_rate": 0.019,
+      "avg_risk_score": 10.3509,
+      "high_or_critical_count": 212,
+      "precision_at_top_1pct": 0.9826,
+      "roc_auc": 0.9991,
+      "pr_auc": 0.9585
+    },
+    "2020-2021 crisis": {
+      "rows": 40485,
+      "anomaly_rate": 0.0182,
+      "avg_risk_score": 10.3073,
+      "high_or_critical_count": 204,
+      "precision_at_top_1pct": 0.9802,
+      "roc_auc": 0.9992,
+      "pr_auc": 0.9595
+    },
+    "2019 baseline": {
+      "rows": 20574,
+      "anomaly_rate": 0.0145,
+      "avg_risk_score": 10.6205,
+      "high_or_critical_count": 101,
+      "precision_at_top_1pct": 0.9756,
+      "roc_auc": 0.9993,
+      "pr_auc": 0.9565
+    }
+  },
+  "customer_count": 3000,
+  "synthetic_anomaly_rate": 0.018,
+  "date_range": {
+    "min": "2019-01-01",
+    "max": "2026-05-31"
+  },
+  "schema_validation": {
+    "customer": {
+      "rows": 3000,
+      "missing_columns": [],
+      "extra_columns": [],
+      "null_cells": 0,
+      "duplicate_rows": 0
+    },
+    "transaction": {
+      "rows": 150000,
+      "missing_columns": [],
+      "extra_columns": [],
+      "null_cells": 0,
+      "duplicate_rows": 0
+    },
+    "activity": {
+      "rows": 220000,
+      "missing_columns": [],
+      "extra_columns": [],
+      "null_cells": 0,
+      "duplicate_rows": 0
+    },
+    "deposit": {
+      "rows": 267000,
+      "missing_columns": [],
+      "extra_columns": [],
+      "null_cells": 0,
+      "duplicate_rows": 0
+    },
+    "lending": {
+      "rows": 267000,
+      "missing_columns": [],
+      "extra_columns": [],
+      "null_cells": 0,
+      "duplicate_rows": 0
+    },
+    "card": {
+      "rows": 267000,
+      "missing_columns": [],
+      "extra_columns": [],
+      "null_cells": 0,
+      "duplicate_rows": 0
+    }
+  },
+  "top_model_drivers": {
+    "ip_customer_count": 0.2725835422281692,
+    "ip_txn_count": 0.2591563358862066,
+    "daily_amount_ratio": 0.07137941426409182,
+    "is_night_hour": 0.06724311786160268,
+    "TRANS_AMOUNT": 0.04101011236406083,
+    "is_new_device_for_customer": 0.03646142421515943,
+    "TRANS_HOUR": 0.036201058925468564,
+    "amount_zscore_customer": 0.035550336271652674,
+    "is_round_amount": 0.03456425153834817,
+    "device_customer_count": 0.03189751193978965,
+    "amount_vs_customer_p95": 0.03149203766653191,
+    "device_txn_count": 0.02814336941057592
+  }
+}

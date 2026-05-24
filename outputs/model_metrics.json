@@ -1,141 +1,135 @@
 {
-  "rows_scored": 150000,
-  "synthetic_anomaly_count": 2700,
-  "threshold_for_positive": 60,
-  "precision_at_threshold": 0.9974,
-  "recall_at_threshold": 0.2889,
-  "f1_at_threshold": 0.448,
-  "confusion_matrix": [
-    [
-      147298,
-      2
-    ],
-    [
-      1920,
-      780
-    ]
-  ],
-  "average_precision_pr_auc": 0.9597,
-  "roc_auc": 0.9992,
-  "precision_at_100": 1.0,
-  "recall_at_100": 0.037,
-  "precision_at_500": 1.0,
-  "recall_at_500": 0.1852,
-  "precision_at_1000": 0.994,
-  "recall_at_1000": 0.3681,
-  "precision_at_2500": 0.9308,
-  "recall_at_2500": 0.8619,
-  "risk_band_distribution": {
-    "Low": 146866,
-    "Medium": 2352,
-    "High": 669,
-    "Critical": 113
+  "data_source": "Processed_Data real contest tables",
+  "assignment_track": "Problem 1 - Fraud & Anomaly Detection",
+  "ground_truth_available": false,
+  "evaluation_note": "The provided real data has no confirmed fraud labels, so this package reports monitoring coverage, risk-band distribution, schema checks, and review-queue outputs instead of precision/recall against fake labels.",
+  "pipeline_config": {
+    "raw_dir": "Processed_Data",
+    "output_dir": "outputs",
+    "figures_dir": "outputs/figures",
+    "report_dir": "report",
+    "chunksize": 1000000,
+    "random_state": 20260524,
+    "iforest_fit_sample": 200000,
+    "iforest_max_samples": 50000,
+    "iforest_contamination": 0.02,
+    "surrogate_sample": 120000
   },
-  "top_anomaly_types_in_critical": {
-    "MONEY_LAUNDERING_PROXY": 110,
-    "BEHAVIORAL_OUTLIER": 2,
-    "ACCOUNT_TAKEOVER": 1
+  "row_counts": {
+    "transactions_scored": 1418030,
+    "customers_scored": 52488,
+    "activity_customer_days": 2212374
   },
-  "stability_by_period": {
-    "2024-2026 digital acceleration": {
-      "rows": 48624,
-      "anomaly_rate": 0.0184,
-      "avg_risk_score": 10.3341,
-      "high_or_critical_count": 265,
-      "precision_at_top_1pct": 0.9959,
-      "roc_auc": 0.9992,
-      "pr_auc": 0.963
-    },
-    "2022-2023 recovery": {
-      "rows": 40317,
-      "anomaly_rate": 0.019,
-      "avg_risk_score": 10.3509,
-      "high_or_critical_count": 212,
-      "precision_at_top_1pct": 0.9826,
-      "roc_auc": 0.9991,
-      "pr_auc": 0.9585
-    },
-    "2020-2021 crisis": {
-      "rows": 40485,
-      "anomaly_rate": 0.0182,
-      "avg_risk_score": 10.3073,
-      "high_or_critical_count": 204,
-      "precision_at_top_1pct": 0.9802,
-      "roc_auc": 0.9992,
-      "pr_auc": 0.9595
-    },
-    "2019 baseline": {
-      "rows": 20574,
-      "anomaly_rate": 0.0145,
-      "avg_risk_score": 10.6205,
-      "high_or_critical_count": 101,
-      "precision_at_top_1pct": 0.9756,
-      "roc_auc": 0.9993,
-      "pr_auc": 0.9565
-    }
-  },
-  "customer_count": 3000,
-  "synthetic_anomaly_rate": 0.018,
   "date_range": {
-    "min": "2019-01-01",
-    "max": "2026-05-31"
+    "min": "2019-01-02",
+    "max": "2019-12-31"
   },
-  "schema_validation": {
+  "schema_report": {
     "customer": {
-      "rows": 3000,
+      "rows": 290223,
       "missing_columns": [],
       "extra_columns": [],
-      "null_cells": 0,
+      "null_cells": 537891,
       "duplicate_rows": 0
     },
     "transaction": {
-      "rows": 150000,
+      "rows": 1418030,
       "missing_columns": [],
       "extra_columns": [],
-      "null_cells": 0,
+      "null_cells": 429024,
       "duplicate_rows": 0
     },
     "activity": {
-      "rows": 220000,
+      "rows": 16132675,
       "missing_columns": [],
       "extra_columns": [],
-      "null_cells": 0,
-      "duplicate_rows": 0
+      "null_cells": null,
+      "duplicate_rows": null
     },
     "deposit": {
-      "rows": 267000,
+      "rows": 1258424,
       "missing_columns": [],
       "extra_columns": [],
       "null_cells": 0,
       "duplicate_rows": 0
     },
     "lending": {
-      "rows": 267000,
+      "rows": 576431,
       "missing_columns": [],
       "extra_columns": [],
       "null_cells": 0,
       "duplicate_rows": 0
     },
     "card": {
-      "rows": 267000,
+      "rows": 871589,
       "missing_columns": [],
       "extra_columns": [],
       "null_cells": 0,
       "duplicate_rows": 0
+    },
+    "activity_daily_aggregated": {
+      "rows": 2212374,
+      "columns": [
+        "CUSTOMER_NUMBER",
+        "TRANS_DATE",
+        "daily_activity_count",
+        "night_activity_count",
+        "late_stage_activity_count",
+        "auth_or_account_activity_count",
+        "max_activity_no_same_day",
+        "unique_activity_name_count"
+      ]
     }
   },
-  "top_model_drivers": {
-    "ip_customer_count": 0.2725835422281692,
-    "ip_txn_count": 0.2591563358862066,
-    "daily_amount_ratio": 0.07137941426409182,
-    "is_night_hour": 0.06724311786160268,
-    "TRANS_AMOUNT": 0.04101011236406083,
-    "is_new_device_for_customer": 0.03646142421515943,
-    "TRANS_HOUR": 0.036201058925468564,
-    "amount_zscore_customer": 0.035550336271652674,
-    "is_round_amount": 0.03456425153834817,
-    "device_customer_count": 0.03189751193978965,
-    "amount_vs_customer_p95": 0.03149203766653191,
-    "device_txn_count": 0.02814336941057592
+  "rule_thresholds": {
+    "high_amount_zscore": 3.0,
+    "high_amount_vs_p95": 1.5,
+    "top_global_amount_percentile": 0.995,
+    "daily_burst_ratio": 3.0,
+    "daily_amount_burst_ratio": 4.0,
+    "cashout_vs_balance_ratio": 2.0,
+    "shared_device_customer_count": 3.0,
+    "shared_ip_customer_count": 12.0,
+    "shared_beneficiary_customer_count": 642.0
+  },
+  "risk_band_thresholds": {
+    "medium_min_score": 62.16392308018181,
+    "high_min_score": 73.46607881569777,
+    "critical_min_score": 85.47418610995352
+  },
+  "activity_no_late_stage_threshold_p90": 4,
+  "risk_band_distribution": {
+    "Low": 1276227,
+    "Medium": 106352,
+    "High": 28360,
+    "Critical": 7091
+  },
+  "root_cause_distribution": {
+    "Account takeover / identity compromise": 27782,
+    "Unauthorized transfer / capital outflow": 7099,
+    "AML network / mule-account pattern": 570
+  },
+  "review_queue": {
+    "medium_or_above_transactions": 141803,
+    "high_or_critical_transactions": 35451,
+    "critical_transactions": 7091,
+    "customers_with_high_or_critical": 8662
+  },
+  "top_surrogate_features": {
+    "is_external_transfer": 0.408899,
+    "night_activity_count": 0.219348,
+    "daily_activity_count": 0.055606,
+    "is_new_device_after_history": 0.049585,
+    "amount_zscore_customer": 0.032929,
+    "AVG_LOAN_AMOUNT": 0.032619,
+    "is_night_hour": 0.024166,
+    "COUNT_OF_LOAN": 0.023469,
+    "TERM_LENDING": 0.022659,
+    "is_new_beneficiary_after_history": 0.021453,
+    "INTEREST_RATE": 0.019144,
+    "amount_global_percentile": 0.015453,
+    "log_trans_amount": 0.01545,
+    "uses_sms": 0.011111,
+    "daily_txn_count": 0.008962
   }
 }

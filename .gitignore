@@ -9,6 +9,12 @@ __pycache__/
 *.log
 *.tmp
 
-data/raw/*.csv
+# Real contest data is kept local because it is large and may contain sensitive encoded records.
+Processed_Data/
+G_Contest 26'_3rd round assignment.docx
+
+# Historical synthetic workspace and regenerated large scoring outputs.
+data/
 outputs/transaction_risk_scores.csv
 outputs/customer_risk_summary.csv
+outputs/top_review_queue.csv

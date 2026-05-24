@@ -1,5 +1,4 @@
-primary_cause_branch,transaction_count,high_or_critical_count,high_critical_anomaly_count,synthetic_anomaly_count,avg_risk_score,high_critical_precision_proxy
-Network / AML linkage,56963,452,452,689,12.705688429331321,1.0
-Abnormal transaction behavior,2424,314,312,1059,41.58733085808581,0.9936305732484076
-Account access / identity compromise,90462,16,16,952,8.056810705047424,1.0
-No strong root cause,151,0,0,0,14.606291390728478,0.0
+primary_cause_branch,total_transactions,medium_or_above_transactions,high_or_critical_transactions,critical_transactions,avg_risk_score,median_amount,p95_amount
+Account takeover / identity compromise,1336816,118498,27782,5111,44.949265140127395,510000.0,30000000.0
+Unauthorized transfer / capital outflow,52284,20437,7099,1918,56.128099199700905,7500000.0,258400999.99999905
+AML network / mule-account pattern,28930,2868,570,62,46.79846690415787,4000000.0,70000000.0

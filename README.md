@@ -1,61 +1,78 @@
-# G'Contest 2026 - Synthetic Fraud & Anomaly Detection
+# G'Contest 2026 - Real-Data Fraud & Anomaly Detection
 
-This workspace contains a submission-ready synthetic implementation for Problem 1: Fraud & Anomaly Detection.
+This project solves Problem 1: Fraud & Anomaly Detection using the real contest files in `Processed_Data/`.
 
-The dataset is synthetic and generated from the official data dictionary columns in `/Users/sonson/Downloads/0.Data Guidline.xlsx`. It is meant to demonstrate the full analytical workflow when the real contest records are not available locally.
+The current version no longer uses synthetic data or synthetic fraud labels. The real dataset has no confirmed fraud label, so the solution is built as a practical fraud-monitoring framework: it creates customer behavioral baselines, detects abnormal transactions with rules and unsupervised ML, and explains each high-risk case with human-readable reason codes.
 
-The storyline is cause-first: identify root causes, group them into three risk branches, then score transactions with a hybrid rule/model framework.
+## What This Project Does
 
-## Quick Start
+- Reads the real seven-module data structure from the contest: customer, transaction, activity, deposit, lending, card, and data dictionary.
+- Builds a cause-first framework before modeling:
+  - account takeover / identity compromise,
+  - unauthorized transfer / capital outflow,
+  - AML network / mule-account pattern.
+- Uses `ACTIVITY_NO` as an ordered digital journey signal, where larger values represent later actions.
+- Scores every transaction with:
+  - rule-based branch scores for explainability,
+  - Isolation Forest for unsupervised anomaly detection,
+  - a hybrid final risk score.
+- Produces transaction-level and customer-level review queues.
+- Outputs an xAI-style explanation: `top_reasons` and `recommended_action`.
 
-Clone the repository and create a local environment:
+## Local Setup
 
 ```bash
-git clone https://github.com/sonson0910/Fraud_Anomaly_Detection.git
-cd Fraud_Anomaly_Detection
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Regenerate the synthetic source data, rerun the fraud pipeline, and rebuild the notebook:
+Place the real data locally:
 
-```bash
-python src/generate_synthetic_data.py
-python src/fraud_pipeline.py
-python src/build_notebook.py
+```text
+Processed_Data/
+  0.Data Guidline.xlsx
+  Data_Customer.csv
+  Data_Transaction.csv
+  Data_Activity.csv
+  Data_Deposit.csv
+  Data_Lending.csv
+  Data_Card.csv
 ```
 
-The large CSV files are intentionally not committed. They can be recreated with the commands above:
+The real data folder and large generated CSVs are intentionally ignored by Git.
 
-- `data/raw/*.csv`
-- `outputs/transaction_risk_scores.csv`
-- `outputs/customer_risk_summary.csv`
+## Run The Full Demo
 
-Run the local risk-advisor demo:
+```bash
+python src/fraud_pipeline.py
+python src/build_notebook.py
+python -m pytest -q
+```
+
+Main outputs:
+
+- `outputs/transaction_risk_scores.csv`: full transaction review queue, local only.
+- `outputs/customer_risk_summary.csv`: customer-level risk summary, local only.
+- `outputs/top_review_queue.csv`: top 1,000 transactions for demo, local only.
+- `outputs/root_cause_summary.csv`: aggregate cause summary.
+- `outputs/model_metrics.json`: schema checks, scoring thresholds, and review-queue metrics.
+- `outputs/figures/*.png`: report figures.
+- `report/final_report_outline.md`: final report outline.
+- `notebooks/01_fraud_anomaly_detection.ipynb`: technical notebook.
+
+## Run The Risk Advisor Demo
 
 ```bash
 python src/customer_risk_advisor.py --top-critical 3
-python src/customer_risk_advisor.py --customer-id CUS000001
-python src/customer_risk_advisor.py --transaction-id TRX0000001
+python src/customer_risk_advisor.py --customer-id <CUSTOMER_NUMBER>
+python src/customer_risk_advisor.py --transaction-id <transaction_row_id>
 ```
 
-## Main Artifacts
+The advisor returns the risk band, main root-cause branch, reason codes, and recommended action. It does not claim a transaction is confirmed fraud unless a human/investigator label is later added.
 
-- `data/raw/`: generated synthetic source tables.
-- `notebooks/01_fraud_anomaly_detection.ipynb`: final technical notebook.
-- `outputs/transaction_risk_scores.csv`: transaction-level scoring.
-- `outputs/customer_risk_summary.csv`: customer-level risk view.
-- `outputs/root_cause_summary.csv`: cause-first summary for report narrative.
-- `outputs/model_metrics.json`: evaluation metrics.
-- `outputs/figures/`: report figures.
-- `report/final_report_outline.md`: Vietnamese final report outline.
-- `docs/PROJECT_WORKFLOW.md`: Vietnamese project workflow and onboarding guide.
+## Why There Is No Precision/Recall Yet
 
-## Validate
+The provided real data does not contain confirmed fraud labels. Creating fake labels would make the evaluation look stronger than it really is. This implementation therefore reports valid no-label evaluation outputs: schema quality, risk-band distribution, top-risk review queue, branch coverage, and explanation quality.
 
-After regenerating outputs, run:
-
-```bash
-python -m pytest -q
-```
+When reviewed cases become available, the same pipeline can be extended to measure Precision@K, Recall@K, PR-AUC, and to train a supervised model.

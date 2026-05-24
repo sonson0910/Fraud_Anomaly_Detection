@@ -4,79 +4,82 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = ROOT / "Processed_Data"
+OUTPUT_DIR = ROOT / "outputs"
 
 
-EXPECTED_COLUMNS = {
-    "Data_Customer.csv": [
-        "CUSTOMER_NUMBER",
-        "CLIENT_SEX",
-        "CLIENT_CREATE_DATE",
-        "DATE_OF_BIRTH",
-        "STAFF",
-        "IB_REGISTER_DATE",
-        "EB_REGISTER_CHANNEL",
-        "SMS",
-        "VERIFY_METHOD",
-        "OCCUPATION_GROUP",
-        "EDUCATION_LEVEL",
-        "MARITAL_STATUS",
-    ],
-    "Data_Transaction.csv": [
-        "TRXN_LV1",
-        "TRXN_LV2",
-        "TRANS_DATE",
-        "DAY_OF_WEEK",
-        "TRANS_HOUR",
-        "TRANS_NO",
-        "TRANS_AMOUNT",
-        "CUSTOMER_NUMBER",
-        "IP_Address_Proxy",
-        "Device_ID_Hash",
-        "Device_OS",
-        "Merchant_ID_Masked",
-        "Beneficiary_CUSTOMER_NUMBER",
-    ],
-    "Data_Activity.csv": [
-        "ACTIVITY_DATE",
-        "DAY_OF_WEEK",
-        "ACTIVITY_HOUR",
-        "ACTIVITY_NO",
-        "CUSTOMER_NUMBER",
-        "ACTIVITY_NAME",
-    ],
-    "Data_Deposit.csv": ["MONTH", "COUNT_CA_ACCT", "AVG_CA_BALANCE", "COUNT_TD_ACCT", "AVG_TD_BALANCE", "CUSTOMER_NUMBER"],
-    "Data_Lending.csv": ["MONTH", "COUNT_OF_LOAN", "AVG_LOAN_AMOUNT", "CUSTOMER_NUMBER", "OVERDUE_LENDING", "TERM_LENDING", "INTEREST_RATE"],
-    "Data_Card.csv": ["MONTH", "COUNT_CREDITCARD", "COUNT_DEBITCARD", "CUSTOMER_NUMBER", "OVERDUE_CREDIT", "LIMIT_AMT", "OUTSTANDING_BALANCE"],
-}
+REQUIRED_RAW_FILES = [
+    "Data_Customer.csv",
+    "Data_Transaction.csv",
+    "Data_Activity.csv",
+    "Data_Deposit.csv",
+    "Data_Lending.csv",
+    "Data_Card.csv",
+    "0.Data Guidline.xlsx",
+]
 
 
-def test_raw_tables_match_dictionary() -> None:
-    for filename, expected in EXPECTED_COLUMNS.items():
-        df = pd.read_csv(ROOT / "data/raw" / filename, nrows=5)
-        assert list(df.columns) == expected
+def test_real_input_files_are_present() -> None:
+    missing = [filename for filename in REQUIRED_RAW_FILES if not (RAW_DIR / filename).exists()]
+    assert not missing, f"Missing real input files: {missing}"
+    assert not (ROOT / "data" / "raw" / "synthetic_ground_truth.csv").exists()
 
 
-def test_outputs_exist_and_have_risk_scores() -> None:
-    risk = pd.read_csv(ROOT / "outputs/transaction_risk_scores.csv")
-    customer = pd.read_csv(ROOT / "outputs/customer_risk_summary.csv")
-    metrics = json.loads((ROOT / "outputs/model_metrics.json").read_text(encoding="utf-8"))
-    root_cause = pd.read_csv(ROOT / "outputs/root_cause_summary.csv")
-    assert len(risk) >= 140_000
-    assert len(customer) == 3_000
+def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
+    risk_path = OUTPUT_DIR / "transaction_risk_scores.csv"
+    customer_path = OUTPUT_DIR / "customer_risk_summary.csv"
+    metrics_path = OUTPUT_DIR / "model_metrics.json"
+    root_cause_path = OUTPUT_DIR / "root_cause_summary.csv"
+    top_queue_path = OUTPUT_DIR / "top_review_queue.csv"
+    for path in [risk_path, customer_path, metrics_path, root_cause_path, top_queue_path]:
+        assert path.exists(), f"Missing output: {path}"
+
+    risk = pd.read_csv(
+        risk_path,
+        usecols=["risk_score_0_100", "risk_band", "primary_cause_branch", "top_reasons", "recommended_action"],
+    )
+    customers = pd.read_csv(customer_path)
+    root_cause = pd.read_csv(root_cause_path)
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+
+    assert len(risk) >= 1_000_000
+    assert len(customers) >= 50_000
     assert not root_cause.empty
+    assert metrics["ground_truth_available"] is False
+    assert metrics["data_source"] == "Processed_Data real contest tables"
     assert risk["risk_score_0_100"].between(0, 100).all()
-    assert "primary_cause_branch" in risk.columns
-    assert "stability_by_period" in metrics
-    assert metrics["date_range"]["min"].startswith("2019")
-    assert metrics["precision_at_100"] >= 0.80
-    assert metrics["recall_at_1000"] >= 0.25
+    assert {"Low", "Medium", "High", "Critical"}.issubset(set(risk["risk_band"].unique()))
+    assert "IS_SYNTHETIC_ANOMALY" not in risk.columns
+    assert "ANOMALY_TYPE" not in risk.columns
 
 
-def test_injected_anomalies_rank_high() -> None:
-    risk = pd.read_csv(ROOT / "outputs/transaction_risk_scores.csv")
-    top_1000 = risk.head(1000)
-    assert top_1000["IS_SYNTHETIC_ANOMALY"].mean() >= 0.25
-    assert {"High", "Critical"}.intersection(set(risk["risk_band"].unique()))
+def test_explainability_fields_are_populated_for_review_queue() -> None:
+    risk = pd.read_csv(OUTPUT_DIR / "transaction_risk_scores.csv", nrows=1000)
+    assert risk["top_reasons"].notna().all()
+    assert risk["recommended_action"].notna().all()
+    assert risk["primary_cause_branch"].notna().all()
+    assert risk["top_reasons"].str.len().median() > 20
+
+
+def test_no_synthetic_generator_remains() -> None:
+    assert not (ROOT / "src" / "generate_synthetic_data.py").exists()
+
+
+@pytest.mark.parametrize(
+    "figure",
+    [
+        "risk_score_distribution.png",
+        "risk_band_counts.png",
+        "root_cause_high_critical.png",
+        "amount_by_risk_band.png",
+        "activity_transaction_linkage.png",
+    ],
+)
+def test_report_figures_exist(figure: str) -> None:
+    path = OUTPUT_DIR / "figures" / figure
+    assert path.exists()
+    assert path.stat().st_size > 1000

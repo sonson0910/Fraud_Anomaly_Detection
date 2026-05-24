@@ -15,135 +15,138 @@ def build_notebook(output_path: Path) -> None:
     cells = [
         nbf.v4.new_markdown_cell(
             "# G'Contest 2026 - Fraud & Anomaly Detection\n\n"
-            "Notebook này sinh và phân tích bộ dữ liệu synthetic theo đúng data dictionary của đề bài, "
-            "phân tích nguyên nhân trước, sau đó xây dựng framework hybrid rule-based + Isolation Forest để phát hiện giao dịch bất thường. "
-            "Dữ liệu synthetic chỉ dùng để minh họa quy trình end-to-end khi chưa có dữ liệu bản ghi thật."
+            "Notebook này dùng dữ liệu thật trong `Processed_Data/`. Dữ liệu không có nhãn fraud đã xác minh, "
+            "vì vậy bài làm không tạo synthetic label. Mục tiêu là xây dựng framework phát hiện bất thường, "
+            "xếp hạng giao dịch cần review và giải thích nguyên nhân theo nghiệp vụ ngân hàng."
         ),
         nbf.v4.new_markdown_cell("## 1. Setup"),
         nbf.v4.new_code_cell(
             "from pathlib import Path\n"
             "import json\n"
             "import pandas as pd\n"
-            "import numpy as np\n"
-            "import matplotlib.pyplot as plt\n"
             "import seaborn as sns\n"
-            "import sys\n"
+            "import matplotlib.pyplot as plt\n"
+            "import sys\n\n"
             "PROJECT_ROOT = Path.cwd()\n"
             "if not (PROJECT_ROOT / 'src').exists():\n"
             "    PROJECT_ROOT = PROJECT_ROOT.parent\n"
-            "sys.path.append(str(PROJECT_ROOT / 'src'))\n"
-            "from generate_synthetic_data import write_outputs, GenerationConfig\n"
-            "from fraud_pipeline import load_data, validate_schema, build_features, build_rule_score, score_model, assign_top_reasons, evaluate\n"
-            "sns.set_theme(style='whitegrid')\n"
-            "RAW_DIR = PROJECT_ROOT / 'data/raw'\n"
-            "OUTPUT_DIR = PROJECT_ROOT / 'outputs'"
-        ),
-        nbf.v4.new_markdown_cell("## 2. Generate Synthetic Data"),
-        nbf.v4.new_code_cell(
-            "config = GenerationConfig(n_customers=3000, target_transactions=150000, target_activities=220000)\n"
-            "write_outputs(config, RAW_DIR)\n"
-            "pd.read_csv(RAW_DIR / 'synthetic_metadata.csv')"
-        ),
-        nbf.v4.new_markdown_cell("## 3. Load Data And Validate Schema"),
-        nbf.v4.new_code_cell(
-            "data = load_data(RAW_DIR)\n"
-            "schema_report = validate_schema(data)\n"
-            "pd.DataFrame(schema_report).T"
-        ),
-        nbf.v4.new_markdown_cell("## 4. Data Quality Snapshot"),
-        nbf.v4.new_code_cell(
-            "quality_rows = []\n"
-            "for name, df in data.items():\n"
-            "    quality_rows.append({\n"
-            "        'table': name,\n"
-            "        'rows': len(df),\n"
-            "        'columns': len(df.columns),\n"
-            "        'null_cells': int(df.isna().sum().sum()),\n"
-            "        'duplicate_rows': int(df.duplicated().sum()),\n"
-            "    })\n"
-            "pd.DataFrame(quality_rows)"
-        ),
-        nbf.v4.new_markdown_cell("## 5. EDA"),
-        nbf.v4.new_code_cell(
-            "trx = data['transaction'].copy()\n"
-            "truth = data['truth'].copy()\n"
-            "trx.insert(0, 'transaction_row_id', [f'TRX{i:07d}' for i in range(1, len(trx)+1)])\n"
-            "trx = trx.merge(truth, on=['transaction_row_id', 'CUSTOMER_NUMBER'], how='left')\n"
-            "trx['IS_SYNTHETIC_ANOMALY'] = trx['IS_SYNTHETIC_ANOMALY'].fillna(0).astype(int)\n"
-            "fig, axes = plt.subplots(1, 2, figsize=(14, 4))\n"
-            "sns.histplot(np.log1p(trx['TRANS_AMOUNT']), bins=50, ax=axes[0])\n"
-            "axes[0].set_title('Log transaction amount distribution')\n"
-            "hour_rate = trx.groupby('TRANS_HOUR')['IS_SYNTHETIC_ANOMALY'].mean().reset_index()\n"
-            "sns.barplot(data=hour_rate, x='TRANS_HOUR', y='IS_SYNTHETIC_ANOMALY', ax=axes[1], color='#2F6B8F')\n"
-            "axes[1].set_title('Anomaly rate by hour')\n"
-            "plt.tight_layout()"
+            "sys.path.append(str(PROJECT_ROOT / 'src'))\n\n"
+            "from fraud_pipeline import PipelineConfig, run_pipeline, load_reference_tables, aggregate_activity, validate_schema\n\n"
+            "RAW_DIR = PROJECT_ROOT / 'Processed_Data'\n"
+            "OUTPUT_DIR = PROJECT_ROOT / 'outputs'\n"
+            "sns.set_theme(style='whitegrid')"
         ),
         nbf.v4.new_markdown_cell(
-            "## 6. Root-Cause Hypothesis Before Modeling\n\n"
-            "BGK đánh giá cao việc xác định nguyên nhân trước khi đưa model. Framework này gom tín hiệu vào 3 nhánh nguyên nhân:\n\n"
-            "1. Account access / identity compromise: thiết bị mới, IP mới, OTP, add beneficiary, change password.\n"
-            "2. Abnormal transaction behavior: amount lệch baseline, giao dịch đêm, burst tần suất, dòng tiền ra bất thường.\n"
-            "3. Network / AML linkage: IP/device dùng chung nhiều khách hàng, chuyển khoản ngoài hệ thống, giao dịch số tròn lặp lại.\n\n"
-            "`ACTIVITY_NO` được đọc như thứ tự hành vi: số nhỏ là bước sớm, số lớn là bước sau/nhạy cảm hơn."
+            "## 2. Assignment Interpretation\n\n"
+            "Theo assignment, fraud track cần kết hợp transaction metadata với digital footprint để:\n\n"
+            "- xây behavioral baseline cho từng khách hàng,\n"
+            "- phát hiện account takeover và unauthorized transfers,\n"
+            "- mở rộng sang money laundering patterns nếu dữ liệu cho phép,\n"
+            "- xuất được human-readable reason cho từng dự báo.\n\n"
+            "Do không có confirmed fraud label, notebook coi đây là bài toán unsupervised/risk-ranking, không phải supervised fraud classification."
+        ),
+        nbf.v4.new_markdown_cell("## 3. Data Overview And Schema Check"),
+        nbf.v4.new_code_cell(
+            "tables = load_reference_tables(RAW_DIR)\n"
+            "row_counts = {name: len(df) for name, df in tables.items()}\n"
+            "row_counts"
+        ),
+        nbf.v4.new_code_cell(
+            "# Activity table is large, so the production pipeline aggregates it by customer-date.\n"
+            "# Run this cell if you want a fresh schema report before the full pipeline.\n"
+            "activity_daily, activity_no_threshold = aggregate_activity(RAW_DIR, chunksize=1_000_000)\n"
+            "schema_report = validate_schema(RAW_DIR, tables, activity_daily)\n"
+            "pd.DataFrame(schema_report).T"
+        ),
+        nbf.v4.new_markdown_cell(
+            "## 4. Cause-First Fraud Hypotheses\n\n"
+            "BGK có xu hướng đánh giá cao việc phân tích nguyên nhân trước. Framework gom tín hiệu thành ba nhánh:\n\n"
+            "1. **Account takeover / identity compromise**: thiết bị mới, IP mới, hoạt động đêm, người thụ hưởng mới, late-stage activity.\n"
+            "2. **Unauthorized transfer / capital outflow**: chuyển khoản ra ngoài, số tiền lệch baseline, daily burst, dòng tiền ra lớn so với CASA.\n"
+            "3. **AML network / mule-account pattern**: IP/device dùng chung, beneficiary nhận tiền từ nhiều khách hàng, giao dịch số tròn giá trị cao.\n\n"
+            "`ACTIVITY_NO` được dùng như thứ tự hành động: số lớn hơn là bước sau hơn. Pipeline lấy top 10% `ACTIVITY_NO` làm late-stage activity dựa trên phân phối thật."
         ),
         nbf.v4.new_code_cell(
             "pd.DataFrame({\n"
-            "    'cause_branch': ['Account access / identity compromise', 'Abnormal transaction behavior', 'Network / AML linkage'],\n"
-            "    'signals': [\n"
-            "        'New device/IP, OTP request, add beneficiary, change password',\n"
-            "        'Night transaction, amount above customer P95, daily burst, cash-out vs balance',\n"
-            "        'Shared device/IP, external transfer, round-value repeated transfers',\n"
+            "    'root_cause_branch': [\n"
+            "        'Account takeover / identity compromise',\n"
+            "        'Unauthorized transfer / capital outflow',\n"
+            "        'AML network / mule-account pattern',\n"
             "    ],\n"
-            "    'business_risk': ['Account takeover', 'Unauthorized transfer', 'Money laundering proxy'],\n"
+            "    'signals': [\n"
+            "        'New device/IP, night access, new beneficiary, late-stage activity',\n"
+            "        'Outside-bank transfer, high amount vs customer baseline, daily burst, cash-out vs CASA',\n"
+            "        'Shared device/IP/beneficiary, round high-value transfers, repeated external transfers',\n"
+            "    ],\n"
+            "    'business_action': [\n"
+            "        'Step-up authentication and account verification',\n"
+            "        'Manual review / temporary hold for high-risk transfer',\n"
+            "        'AML escalation and network investigation',\n"
+            "    ],\n"
             "})"
         ),
-        nbf.v4.new_markdown_cell("## 7. Feature Engineering"),
+        nbf.v4.new_markdown_cell("## 5. Run Full Pipeline"),
         nbf.v4.new_code_cell(
-            "features = build_features(data)\n"
-            "features.shape, features[['TRANS_AMOUNT','amount_zscore_customer','daily_txn_count_ratio','device_customer_count','ip_customer_count','max_activity_no_same_day']].describe().T"
+            "config = PipelineConfig(\n"
+            "    raw_dir=RAW_DIR,\n"
+            "    output_dir=OUTPUT_DIR,\n"
+            "    figures_dir=OUTPUT_DIR / 'figures',\n"
+            "    report_dir=PROJECT_ROOT / 'report',\n"
+            ")\n"
+            "metrics = run_pipeline(config)\n"
+            "metrics['review_queue']"
         ),
-        nbf.v4.new_markdown_cell("## 8. Rule-Based Cause Score"),
+        nbf.v4.new_markdown_cell("## 6. Risk Outputs"),
         nbf.v4.new_code_cell(
-            "scored = features.merge(data['truth'], on=['transaction_row_id', 'CUSTOMER_NUMBER'], how='left')\n"
-            "scored['IS_SYNTHETIC_ANOMALY'] = scored['IS_SYNTHETIC_ANOMALY'].fillna(0).astype(int)\n"
-            "scored['ANOMALY_TYPE'] = scored['ANOMALY_TYPE'].fillna('NORMAL')\n"
-            "scored = build_rule_score(scored)\n"
-            "scored[['primary_cause_branch','branch_identity_access_score','branch_transaction_behavior_score','branch_network_aml_score','rule_reasons']].head()"
-        ),
-        nbf.v4.new_markdown_cell("## 9. Isolation Forest And Hybrid Score"),
-        nbf.v4.new_code_cell(
-            "scored, feature_importance = score_model(scored)\n"
-            "scored = assign_top_reasons(scored, feature_importance)\n"
-            "scored[['transaction_row_id','risk_score_0_100','risk_band','primary_cause_branch','top_reasons']].sort_values('risk_score_0_100', ascending=False).head(10)"
-        ),
-        nbf.v4.new_markdown_cell("## 10. Evaluation Against Synthetic Ground Truth"),
-        nbf.v4.new_code_cell(
-            "metrics = evaluate(scored)\n"
-            "metrics"
-        ),
-        nbf.v4.new_markdown_cell("## 11. Stability Across Time"),
-        nbf.v4.new_code_cell(
-            "pd.DataFrame.from_dict(metrics['stability_by_period'], orient='index')"
-        ),
-        nbf.v4.new_markdown_cell("## 12. Explainability"),
-        nbf.v4.new_code_cell(
-            "pd.Series(feature_importance).sort_values(ascending=False).head(15).plot(kind='barh', figsize=(8, 6), title='Surrogate feature importance')\n"
-            "plt.gca().invert_yaxis()\n"
-            "plt.tight_layout()"
+            "risk = pd.read_csv(OUTPUT_DIR / 'transaction_risk_scores.csv')\n"
+            "customers = pd.read_csv(OUTPUT_DIR / 'customer_risk_summary.csv')\n"
+            "root_cause = pd.read_csv(OUTPUT_DIR / 'root_cause_summary.csv')\n"
+            "risk.head()"
         ),
         nbf.v4.new_code_cell(
-            "scored.sort_values('risk_score_0_100', ascending=False)[[\n"
-            "    'transaction_row_id','CUSTOMER_NUMBER','TRANS_DATE','TRANS_HOUR','TRANS_AMOUNT',\n"
-            "    'risk_score_0_100','risk_band','primary_cause_branch','ANOMALY_TYPE','top_reasons','recommended_action'\n"
-            "]].head(12)"
+            "risk['risk_band'].value_counts().reindex(['Low','Medium','High','Critical'])"
+        ),
+        nbf.v4.new_markdown_cell("## 7. Explainability Examples"),
+        nbf.v4.new_code_cell(
+            "risk[[\n"
+            "    'transaction_row_id', 'CUSTOMER_NUMBER', 'TRANS_DATE', 'TRANS_HOUR', 'TRANS_LV1', 'TRANS_LV2',\n"
+            "    'TRANS_AMOUNT', 'risk_score_0_100', 'risk_band', 'primary_cause_branch',\n"
+            "    'top_reasons', 'recommended_action'\n"
+            "]].head(10)"
         ),
         nbf.v4.new_markdown_cell(
-            "## 13. Business Recommendations And Live Demo Idea\n\n"
-            "- Low/Medium risk: tiếp tục theo dõi và so sánh với baseline khách hàng.\n"
-            "- High risk: áp dụng step-up authentication hoặc near-real-time review.\n"
-            "- Critical risk: giữ giao dịch để manual review; nếu lặp theo IP/device/beneficiary thì chuyển AML escalation.\n"
-            "- Có thể demo bằng `src/customer_risk_advisor.py`: nhập `CUSTOMER_NUMBER` hoặc `transaction_row_id`, hệ thống trả dự báo, root cause và action.\n"
-            "- KPI vận hành: Precision@K, recall@K trên case đã review, false-positive rate theo phân khúc, số case/ngày."
+            "## 8. Evaluation Without Fraud Labels\n\n"
+            "Vì dữ liệu không có nhãn fraud, không báo precision/recall trên nhãn tự tạo. Evaluation hợp lệ gồm:\n\n"
+            "- kiểm tra schema và data quality,\n"
+            "- kiểm tra phân phối risk band để phù hợp capacity review,\n"
+            "- kiểm tra các top-risk transaction có reason codes rõ ràng,\n"
+            "- kiểm tra ba nhánh nguyên nhân có output riêng,\n"
+            "- chuẩn bị feedback loop để khi investigator xác nhận case thì đo Precision@K/Recall@K thật."
+        ),
+        nbf.v4.new_code_cell(
+            "with open(OUTPUT_DIR / 'model_metrics.json', encoding='utf-8') as f:\n"
+            "    metrics = json.load(f)\n"
+            "pd.Series(metrics['risk_band_distribution'])"
+        ),
+        nbf.v4.new_code_cell(
+            "pd.DataFrame(metrics['top_surrogate_features'].items(), columns=['feature', 'importance']).head(15)"
+        ),
+        nbf.v4.new_markdown_cell("## 9. Report Figures"),
+        nbf.v4.new_code_cell(
+            "from IPython.display import Image, display\n"
+            "for path in sorted((OUTPUT_DIR / 'figures').glob('*.png')):\n"
+            "    print(path.name)\n"
+            "    display(Image(filename=str(path)))"
+        ),
+        nbf.v4.new_markdown_cell(
+            "## 10. Live Demo\n\n"
+            "Sau khi chạy pipeline, có thể demo bằng CLI:\n\n"
+            "```bash\n"
+            "python src/customer_risk_advisor.py --top-critical 3\n"
+            "python src/customer_risk_advisor.py --customer-id <CUSTOMER_NUMBER>\n"
+            "python src/customer_risk_advisor.py --transaction-id <transaction_row_id>\n"
+            "```\n\n"
+            "Demo trả về risk band, nguyên nhân chính, reason codes và recommended action bằng ngôn ngữ dễ hiểu cho risk officer."
         ),
     ]
     nb["cells"] = cells
@@ -152,7 +155,7 @@ def build_notebook(output_path: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build final notebook artifact.")
+    parser = argparse.ArgumentParser(description="Build final real-data notebook artifact.")
     parser.add_argument("--output", type=Path, default=Path("notebooks/01_fraud_anomaly_detection.ipynb"))
     return parser.parse_args()
 

@@ -1,87 +1,75 @@
-# G'Contest 2026 - Bài toán 1: Fraud & Anomaly Detection
+# Final Report Outline - Fraud & Anomaly Detection
 
-## 1. Chọn nhánh bài toán và mục tiêu
+## 1. Bối cảnh và mục tiêu
 
-Booklet gợi ý 3 nhánh chính: Fraud & Anomaly Detection, Next Best Financial Offer và Persona-Based Digital Personalization. Nhóm chọn nhánh 1, nhưng thiết kế feature vẫn tận dụng dữ liệu chân dung khách hàng, hành vi số và sản phẩm tài chính để có thể mở rộng sang 2 nhánh còn lại.
+Bài toán 1 của G'Contest yêu cầu phát hiện gian lận và bất thường từ dữ liệu ngân hàng 360 độ: chân dung khách hàng, giao dịch, digital activity và sản phẩm. Dữ liệu thật không có nhãn fraud đã xác minh, nên giải pháp không tự bịa nhãn. Framework được thiết kế như một hệ thống xếp hạng rủi ro để đưa giao dịch vào hàng đợi review.
 
-Đề án không bắt đầu từ model. Luồng trình bày là: phân tích nguyên nhân có thể gây rủi ro -> gom thành root-cause branches -> xây framework phát hiện -> dùng model và xAI để lượng hóa/giải thích.
+## 2. Cách tiếp cận nguyên nhân trước model
 
-## 2. Dữ liệu synthetic
+Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo đúng assignment:
 
-- Khách hàng: 3,000
-- Giao dịch: 150,000
-- Giao dịch anomaly được cài nhãn kiểm chứng: 2,700
-- Tỷ lệ anomaly: 1.80%
-- Khoảng thời gian: 2019-01-01 đến 2026-05-31
+1. Account takeover / identity compromise: thiết bị mới, IP mới, hoạt động đêm, hoạt động digital ở giai đoạn muộn, người thụ hưởng mới.
+2. Unauthorized transfer / capital outflow: chuyển khoản ra ngoài ngân hàng, số tiền lệch baseline, tần suất giao dịch tăng, dòng tiền ra lớn so với CASA.
+3. AML network / mule-account pattern: IP/device dùng chung nhiều khách hàng, người thụ hưởng nhận tiền từ nhiều khách hàng, giao dịch số tròn giá trị cao.
 
-Dữ liệu gồm 6 nhóm: thông tin khách hàng, giao dịch e-banking, hoạt động số, tiền gửi, tín dụng và thẻ. `CUSTOMER_NUMBER` là key để nối các bảng. `ACTIVITY_NO` được hiểu theo thứ tự hành vi: số nhỏ là bước sớm, số lớn là bước sau/nhạy cảm hơn như add beneficiary hoặc change password. Nhãn chỉ nằm ở file `synthetic_ground_truth.csv`, không trộn vào schema gốc.
+`ACTIVITY_NO` được dùng đúng ý nghĩa trong note mentor: số lớn hơn là hành động sau hơn, nên top 10% `ACTIVITY_NO` trong dữ liệu được xem là late-stage digital activity.
 
-## 3. Phân tích nguyên nhân trước khi xây model
+## 3. Dữ liệu sử dụng
 
-Ba nhóm nguyên nhân chính:
+- Nguồn: `Processed_Data/` và `G_Contest 26'_3rd round assignment.docx`.
+- Số giao dịch scored: 1,418,030.
+- Số khách hàng scored: 52,488.
+- Thời gian dữ liệu: 2019-01-02 đến 2019-12-31.
+- Không dùng synthetic data, không dùng synthetic ground truth.
 
-1. Account access / identity compromise: thiết bị mới, IP mới, OTP request, add beneficiary, change password.
-2. Abnormal transaction behavior: giao dịch ngoài giờ quen thuộc, amount vượt baseline, burst tần suất, dòng tiền ra lớn so với số dư.
-3. Network / AML linkage: IP/device dùng bởi nhiều khách hàng, chuyển khoản ngoài hệ thống, giao dịch số tròn lặp lại.
+## 4. Framework kỹ thuật
 
-Tóm tắt root-cause trên tập synthetic:
+1. Chuẩn hóa schema theo data dictionary, đồng thời xử lý khác biệt tên cột trong file thật như `TRANS_LV1`/`TRXN_LV1` và `LIMIT_AMT_CREDIT`/`LIMIT_AMT`.
+2. Tạo baseline hành vi theo từng khách hàng: số tiền trung bình, P95, tần suất ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
+3. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
+4. Chấm điểm rule-based theo ba nhánh nguyên nhân.
+5. Huấn luyện Isolation Forest không giám sát để bắt giao dịch lệch khỏi phân bố hành vi chung.
+6. Điểm cuối = 60% rule score + 40% model anomaly score, sau đó chia band theo capacity review: Low, Medium, High, Critical.
+7. xAI engine xuất `top_reasons` và `recommended_action` cho từng giao dịch.
 
-| primary_cause_branch | transaction_count | high_or_critical_count | high_critical_anomaly_count | synthetic_anomaly_count | avg_risk_score | high_critical_precision_proxy |
-| --- | --- | --- | --- | --- | --- | --- |
-| Network / AML linkage | 56963 | 452 | 452 | 689 | 12.71 | 1.0 |
-| Abnormal transaction behavior | 2424 | 314 | 312 | 1059 | 41.59 | 0.9936 |
-| Account access / identity compromise | 90462 | 16 | 16 | 952 | 8.06 | 1.0 |
-| No strong root cause | 151 | 0 | 0 | 0 | 14.61 | 0.0 |
+## 5. Kết quả chính
 
-## 4. Framework phát hiện bất thường
+- High/Critical transactions: 35,451.
+- Critical transactions: 7,091.
+- Khách hàng có High/Critical transaction: 8,662.
 
-Framework dùng hai lớp:
+Root-cause summary:
 
-1. Root-cause rule score: dễ giải thích, bám các nguyên nhân nghiệp vụ ở trên.
-2. Isolation Forest: học cấu trúc hành vi tổng thể để bắt các điểm lệch đa chiều.
-3. xAI layer: trả `primary_cause_branch`, reason codes, feature importance và khuyến nghị xử lý.
+- Account takeover / identity compromise: 27,782 High/Critical giao dịch, risk trung bình 44.9/100.
+- Unauthorized transfer / capital outflow: 7,099 High/Critical giao dịch, risk trung bình 56.1/100.
+- AML network / mule-account pattern: 570 High/Critical giao dịch, risk trung bình 46.8/100.
 
-Risk score cuối cùng = 60% model score + 40% rule score.
+## 6. Vì sao không báo Precision/Recall như bài có nhãn?
 
-## 5. Kết quả mô hình
+Vì file thật không có confirmed fraud label. Báo precision/recall dựa trên nhãn tự bịa sẽ làm sai bản chất bài thi. Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 
-- PR-AUC: 0.9597
-- ROC-AUC: 0.9992
-- Precision@100: 1.0
-- Recall@1000: 0.3681
-- Precision tại ngưỡng High/Critical >= 60: 0.9974
-- Recall tại ngưỡng High/Critical >= 60: 0.2889
+- Schema/data quality checks.
+- Coverage của review queue.
+- Distribution theo risk band.
+- Kiểm tra top-risk có reason codes rõ ràng.
+- Chuẩn bị cơ chế nhận feedback từ investigator để hiệu chỉnh threshold/model sau này.
 
-Stability theo thời gian:
+## 7. Gợi ý vận hành thực tế
 
-| time_period | rows | anomaly_rate | avg_risk_score | high_or_critical_count | precision_at_top_1pct | roc_auc | pr_auc |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 2024-2026 digital acceleration | 48624 | 0.0184 | 10.3341 | 265 | 0.9959 | 0.9992 | 0.963 |
-| 2022-2023 recovery | 40317 | 0.019 | 10.3509 | 212 | 0.9826 | 0.9991 | 0.9585 |
-| 2020-2021 crisis | 40485 | 0.0182 | 10.3073 | 204 | 0.9802 | 0.9992 | 0.9595 |
-| 2019 baseline | 20574 | 0.0145 | 10.6205 | 101 | 0.9756 | 0.9993 | 0.9565 |
+- Critical: near-real-time hold/manual review, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
+- High: step-up authentication hoặc manual review trong ngày.
+- AML branch: escalation theo mạng lưới IP/device/beneficiary, không nhìn từng giao dịch riêng lẻ.
+- Medium: theo dõi tăng cường và nâng cấp nếu lặp lại trong 7 ngày.
+- KPI sau khi triển khai: hit rate trong top-K, false positive rate theo phân khúc, review capacity, số case AML escalation, time-to-review.
 
-## 6. Ví dụ explainability
+## 8. Liên hệ với chuẩn nghiệp vụ quốc tế
 
-| transaction_row_id | CUSTOMER_NUMBER | risk_score_0_100 | risk_band | primary_cause_branch | ANOMALY_TYPE | top_reasons |
-| --- | --- | --- | --- | --- | --- | --- |
-| TRX0117584 | CUS002645 | 94.0 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0107148 | CUS000446 | 93.09 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0103280 | CUS002932 | 91.8 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0046072 | CUS002218 | 91.09 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0120424 | CUS002719 | 89.93 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0028823 | CUS001695 | 89.56 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0094281 | CUS000449 | 88.37 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
-| TRX0125855 | CUS001195 | 88.26 | Critical | Network / AML linkage | MONEY_LAUNDERING_PROXY | Giao dịch ngoài khung giờ thông thường; Số tiền cao bất thường so với lịch sử khách hàng; Dòng tiền ra bất thường so với số dư CASA; Thiết bị mới của khách hàng; Mô hình anomaly đánh giá tổng thể cao |
+- FATF Risk-Based Approach for Banking Sector: ngân hàng nên hiểu mức độ rủi ro, ưu tiên nguồn lực vào nơi rủi ro cao và áp dụng biện pháp giảm thiểu tương ứng. Link: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Risk-based-approach-banking-sector.html
+- FFIEC Authentication and Access Guidance: với digital banking, kiểm soát nên theo hướng layered security, MFA/step-up authentication và tăng kiểm soát khi giao dịch hoặc truy cập có rủi ro cao. Link: https://www.ffiec.gov/news/press-releases/2021/pr-08-11
+- FATF Guidance on Risk-Based Supervision: tránh cách làm tick-box, tập trung vào full spectrum of risks và nơi rủi ro cao hơn. Link: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Guidance-rba-supervision.html
 
-## 7. Đề xuất triển khai
+Framework của dự án bám đúng tinh thần này: risk-based, layered controls, review queue theo capacity, và xAI reason codes để investigator kiểm tra được.
 
-- Medium risk: theo dõi mềm và so sánh thêm với lịch sử khách hàng.
-- High risk: yêu cầu step-up authentication, ưu tiên giao dịch chuyển khoản ngoài hệ thống.
-- Critical risk: tạm giữ hoặc đưa vào hàng đợi manual review; nếu có pattern lặp theo IP/device/beneficiary thì chuyển AML escalation.
-- Demo/AI assistant: có thể dùng `src/customer_risk_advisor.py` như live demo để nhập `CUSTOMER_NUMBER` hoặc `transaction_row_id`, sau đó trả risk band, nguyên nhân, bằng chứng và hành động đề xuất. Nếu có API LLM, phần này có thể chuyển thành chatbot giải thích cho risk officer.
-- KPI nên theo dõi: Precision@K, số case review/ngày, false-positive rate theo phân khúc khách hàng, thời gian xử lý manual review.
+## 9. Hạn chế
 
-## 8. Hạn chế
-
-Kết quả hiện dựa trên synthetic data để minh họa. Khi có dữ liệu thật, cần hiệu chỉnh ngưỡng risk band, contamination rate, rule weight và kiểm định với nhãn fraud/chargeback/manual review thực tế.
+Đây là framework chuẩn cho dữ liệu không nhãn, không phải model xác nhận fraud. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh threshold, huấn luyện supervised model, và đo Precision@K/Recall@K chính thức.

@@ -64,6 +64,8 @@ Luồng xử lý:
 8. Gộp điểm cuối: 60% rule score và 40% anomaly model score.
 9. Chia risk band: Low, Medium, High, Critical.
 10. Xuất reason codes và recommended action cho từng giao dịch.
+11. Tạo monthly/quarterly stability backtest để kiểm tra review-rate có ổn định theo thời gian không.
+12. Chạy SHAP xAI engine để giải thích risk score bằng surrogate tree model.
 
 ## 5. Vì sao vẫn dùng model khi không có nhãn?
 
@@ -71,18 +73,33 @@ Rule-based giúp giải thích rất tốt nhưng có thể bỏ sót các patte
 
 Trong dự án này, model không thay thế nghiệp vụ. Model chỉ bổ sung lớp phát hiện bất thường. Phần giải thích vẫn dựa trên root-cause rules để người chấm và risk officer đọc được.
 
-## 6. Các file output cần xem
+## 6. SHAP/xAI giải thích gì?
+
+xAI có hai lớp:
+
+- Lớp nghiệp vụ: `top_reasons` giải thích trực tiếp vì sao giao dịch bị flag, ví dụ thiết bị mới, IP mới, chuyển khoản ngoài ngân hàng, số tiền lệch baseline.
+- Lớp model: `src/xai_shap_engine.py` huấn luyện một tree surrogate để bắt chước `risk_score_0_100`, sau đó dùng SHAP TreeExplainer để chỉ ra feature nào kéo điểm rủi ro lên/xuống.
+
+Nếu máy có đủ runtime cho XGBoost thì script có thể dùng XGBoost. Nếu thiếu `libomp` trên macOS, script tự fallback sang scikit-learn tree surrogate và vẫn xuất SHAP thật.
+
+## 7. Các file output cần xem
 
 - `outputs/transaction_risk_scores.csv`: bảng giao dịch đã scored, sắp xếp từ rủi ro cao xuống thấp.
 - `outputs/customer_risk_summary.csv`: tổng hợp rủi ro theo khách hàng.
 - `outputs/top_review_queue.csv`: 1,000 giao dịch đầu để demo nhanh.
 - `outputs/root_cause_summary.csv`: tổng hợp số case theo ba nhánh nguyên nhân.
+- `outputs/monthly_stability.csv`: kiểm tra stability theo tháng.
+- `outputs/quarterly_stability.csv`: kiểm tra stability theo quý.
+- `outputs/shap_feature_importance.csv`: global SHAP importance.
+- `outputs/shap_local_explanations.csv`: local SHAP explanation cho top case.
 - `outputs/model_metrics.json`: thông tin data quality, thresholds, phân phối risk band.
 - `outputs/figures/`: chart dùng cho report/slide.
 - `report/final_report_outline.md`: khung báo cáo cuối.
+- `report/final_slide_deck.pdf`: slide deck PDF để nộp/trình bày.
+- `report/final_slide_deck.pptx`: slide deck có thể chỉnh sửa.
 - `notebooks/01_fraud_anomaly_detection.ipynb`: technical notebook.
 
-## 7. Cách demo
+## 8. Cách demo
 
 Chạy toàn bộ pipeline:
 
@@ -90,10 +107,22 @@ Chạy toàn bộ pipeline:
 python src/fraud_pipeline.py
 ```
 
+Chạy SHAP xAI:
+
+```bash
+python src/xai_shap_engine.py
+```
+
 Tạo lại notebook:
 
 ```bash
 python src/build_notebook.py
+```
+
+Tạo slide deck:
+
+```bash
+python src/build_slide_deck.py
 ```
 
 Mở demo risk advisor:
@@ -108,9 +137,15 @@ Hoặc nhập một khách hàng cụ thể:
 python src/customer_risk_advisor.py --customer-id <CUSTOMER_NUMBER>
 ```
 
+Mở UI/chatbot demo:
+
+```bash
+streamlit run src/demo_app.py
+```
+
 Kết quả demo sẽ trả về risk band, nhánh nguyên nhân chính, lý do bị flag và hành động đề xuất.
 
-## 8. Cách đọc một dòng kết quả
+## 9. Cách đọc một dòng kết quả
 
 Một giao dịch Critical không có nghĩa là “đã chắc chắn gian lận”. Nó có nghĩa là giao dịch này nằm trong top rủi ro theo framework hiện tại và cần được review trước.
 
@@ -122,7 +157,7 @@ Các trường quan trọng:
 - `top_reasons`: lý do cụ thể.
 - `recommended_action`: hành động đề xuất cho risk officer.
 
-## 9. Điều cần nói rõ với BGK
+## 10. Điều cần nói rõ với BGK
 
 Vì không có fraud label thật, dự án không báo Precision/Recall giả. Đó là điểm mạnh về tính trung thực. Thay vào đó, dự án chứng minh:
 
@@ -133,9 +168,8 @@ Vì không có fraud label thật, dự án không báo Precision/Recall giả. 
 - có xAI/reason code,
 - có thể mở rộng sang supervised learning sau khi có feedback từ investigator.
 
-## 10. Hướng nâng cấp nếu có thời gian
+## 11. Hướng nâng cấp nếu có thời gian
 
-- Tạo dashboard hoặc app nhỏ để nhập `CUSTOMER_NUMBER` và xem risk profile.
 - Thêm graph/network visualization cho IP/device/beneficiary.
 - Khi mentor/BTC cung cấp nhãn review, thêm supervised model và đo Precision@K/Recall@K chính thức.
 - Thêm policy tuning theo review capacity của ngân hàng, ví dụ mỗi ngày chỉ review top 0.5% giao dịch.

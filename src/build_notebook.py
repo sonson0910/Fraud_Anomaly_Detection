@@ -106,7 +106,24 @@ def build_notebook(output_path: Path) -> None:
         nbf.v4.new_code_cell(
             "risk['risk_band'].value_counts().reindex(['Low','Medium','High','Critical'])"
         ),
-        nbf.v4.new_markdown_cell("## 7. Explainability Examples"),
+        nbf.v4.new_markdown_cell("## 7. Monthly / Quarterly Stability Backtest"),
+        nbf.v4.new_code_cell(
+            "monthly = pd.read_csv(OUTPUT_DIR / 'monthly_stability.csv')\n"
+            "quarterly = pd.read_csv(OUTPUT_DIR / 'quarterly_stability.csv')\n"
+            "monthly"
+        ),
+        nbf.v4.new_code_cell(
+            "fig, ax1 = plt.subplots(figsize=(10,4))\n"
+            "ax1.plot(monthly['month'], monthly['avg_risk_score'], marker='o', label='Avg risk score')\n"
+            "ax1.set_ylabel('Avg risk score')\n"
+            "ax1.tick_params(axis='x', rotation=45)\n"
+            "ax2 = ax1.twinx()\n"
+            "ax2.plot(monthly['month'], monthly['high_critical_rate']*100, marker='s', color='#C46243', label='High/Critical rate')\n"
+            "ax2.set_ylabel('High/Critical rate (%)')\n"
+            "plt.title('Monthly stability backtest on 2019 data')\n"
+            "plt.tight_layout()"
+        ),
+        nbf.v4.new_markdown_cell("## 8. Explainability Examples"),
         nbf.v4.new_code_cell(
             "risk[[\n"
             "    'transaction_row_id', 'CUSTOMER_NUMBER', 'TRANS_DATE', 'TRANS_HOUR', 'TRANS_LV1', 'TRANS_LV2',\n"
@@ -114,8 +131,17 @@ def build_notebook(output_path: Path) -> None:
             "    'top_reasons', 'recommended_action'\n"
             "]].head(10)"
         ),
+        nbf.v4.new_markdown_cell("## 9. SHAP xAI Surrogate"),
+        nbf.v4.new_code_cell(
+            "# Run once after the main pipeline if SHAP files do not exist:\n"
+            "# !python src/xai_shap_engine.py\n"
+            "shap_importance = pd.read_csv(OUTPUT_DIR / 'shap_feature_importance.csv')\n"
+            "shap_local = pd.read_csv(OUTPUT_DIR / 'shap_local_explanations.csv')\n"
+            "shap_importance.head(15)"
+        ),
+        nbf.v4.new_code_cell("shap_local.head(10)"),
         nbf.v4.new_markdown_cell(
-            "## 8. Evaluation Without Fraud Labels\n\n"
+            "## 10. Evaluation Without Fraud Labels\n\n"
             "Vì dữ liệu không có nhãn fraud, không báo precision/recall trên nhãn tự tạo. Evaluation hợp lệ gồm:\n\n"
             "- kiểm tra schema và data quality,\n"
             "- kiểm tra phân phối risk band để phù hợp capacity review,\n"
@@ -131,7 +157,7 @@ def build_notebook(output_path: Path) -> None:
         nbf.v4.new_code_cell(
             "pd.DataFrame(metrics['top_surrogate_features'].items(), columns=['feature', 'importance']).head(15)"
         ),
-        nbf.v4.new_markdown_cell("## 9. Report Figures"),
+        nbf.v4.new_markdown_cell("## 11. Report Figures"),
         nbf.v4.new_code_cell(
             "from IPython.display import Image, display\n"
             "for path in sorted((OUTPUT_DIR / 'figures').glob('*.png')):\n"
@@ -139,14 +165,19 @@ def build_notebook(output_path: Path) -> None:
             "    display(Image(filename=str(path)))"
         ),
         nbf.v4.new_markdown_cell(
-            "## 10. Live Demo\n\n"
-            "Sau khi chạy pipeline, có thể demo bằng CLI:\n\n"
+            "## 12. Live Demo And Slide Deck\n\n"
+            "Sau khi chạy pipeline, có thể demo bằng CLI hoặc Streamlit:\n\n"
             "```bash\n"
             "python src/customer_risk_advisor.py --top-critical 3\n"
             "python src/customer_risk_advisor.py --customer-id <CUSTOMER_NUMBER>\n"
             "python src/customer_risk_advisor.py --transaction-id <transaction_row_id>\n"
+            "streamlit run src/demo_app.py\n"
             "```\n\n"
-            "Demo trả về risk band, nguyên nhân chính, reason codes và recommended action bằng ngôn ngữ dễ hiểu cho risk officer."
+            "Tạo slide deck PDF/PPTX:\n\n"
+            "```bash\n"
+            "python src/build_slide_deck.py\n"
+            "```\n\n"
+            "Demo trả về risk band, nguyên nhân chính, reason codes, SHAP evidence và recommended action bằng ngôn ngữ dễ hiểu cho risk officer."
         ),
     ]
     nb["cells"] = cells

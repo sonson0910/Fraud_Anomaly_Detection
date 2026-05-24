@@ -35,7 +35,11 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     metrics_path = OUTPUT_DIR / "model_metrics.json"
     root_cause_path = OUTPUT_DIR / "root_cause_summary.csv"
     top_queue_path = OUTPUT_DIR / "top_review_queue.csv"
-    for path in [risk_path, customer_path, metrics_path, root_cause_path, top_queue_path]:
+    monthly_path = OUTPUT_DIR / "monthly_stability.csv"
+    quarterly_path = OUTPUT_DIR / "quarterly_stability.csv"
+    shap_path = OUTPUT_DIR / "shap_feature_importance.csv"
+    shap_local_path = OUTPUT_DIR / "shap_local_explanations.csv"
+    for path in [risk_path, customer_path, metrics_path, root_cause_path, top_queue_path, monthly_path, quarterly_path, shap_path, shap_local_path]:
         assert path.exists(), f"Missing output: {path}"
 
     risk = pd.read_csv(
@@ -55,6 +59,8 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     assert {"Low", "Medium", "High", "Critical"}.issubset(set(risk["risk_band"].unique()))
     assert "IS_SYNTHETIC_ANOMALY" not in risk.columns
     assert "ANOMALY_TYPE" not in risk.columns
+    assert "monthly_stability" in metrics
+    assert "quarterly_stability" in metrics
 
 
 def test_explainability_fields_are_populated_for_review_queue() -> None:
@@ -77,9 +83,18 @@ def test_no_synthetic_generator_remains() -> None:
         "root_cause_high_critical.png",
         "amount_by_risk_band.png",
         "activity_transaction_linkage.png",
+        "monthly_stability_backtest.png",
+        "shap_feature_importance.png",
+        "shap_summary_beeswarm.png",
     ],
 )
 def test_report_figures_exist(figure: str) -> None:
     path = OUTPUT_DIR / "figures" / figure
     assert path.exists()
     assert path.stat().st_size > 1000
+
+
+def test_slide_deck_outputs_exist() -> None:
+    for path in [ROOT / "report" / "final_slide_deck.pdf", ROOT / "report" / "final_slide_deck.pptx"]:
+        assert path.exists()
+        assert path.stat().st_size > 10_000

@@ -31,6 +31,7 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 5. Huấn luyện Isolation Forest không giám sát để bắt giao dịch lệch khỏi phân bố hành vi chung.
 6. Điểm cuối = 60% rule score + 40% model anomaly score, sau đó chia band theo capacity review: Low, Medium, High, Critical.
 7. xAI engine xuất `top_reasons` và `recommended_action` cho từng giao dịch.
+8. SHAP engine huấn luyện tree surrogate để giải thích `risk_score_0_100` bằng global feature importance và local SHAP drivers.
 
 ## 5. Kết quả chính
 
@@ -44,7 +45,29 @@ Root-cause summary:
 - Unauthorized transfer / capital outflow: 7,099 High/Critical giao dịch, risk trung bình 56.1/100.
 - AML network / mule-account pattern: 570 High/Critical giao dịch, risk trung bình 46.8/100.
 
-## 6. Vì sao không báo Precision/Recall như bài có nhãn?
+Monthly stability backtest:
+
+- Framework được kiểm tra theo từng tháng trong năm 2019.
+- `model_metrics.json` có bảng monthly/quarterly stability gồm transaction count, average risk, P95 risk và High/Critical rate.
+- Vì dữ liệu chỉ có năm 2019, đây là temporal robustness check, không phải crisis-period validation.
+
+## 6. xAI engine
+
+Giải thích có hai lớp:
+
+- Reason codes trực tiếp từ root-cause rules, dùng trong `top_reasons` và `recommended_action`.
+- SHAP TreeExplainer trên surrogate model để chứng minh feature nào đang kéo risk score lên/xuống.
+
+Output liên quan:
+
+- `outputs/shap_feature_importance.csv`.
+- `outputs/shap_local_explanations.csv`.
+- `outputs/figures/shap_feature_importance.png`.
+- `outputs/figures/shap_summary_beeswarm.png`.
+
+Vì XGBoost trên macOS cần `libomp`, script `src/xai_shap_engine.py` có cơ chế fallback sang tree surrogate của scikit-learn nếu XGBoost native không load được. SHAP values vẫn được tính thật bằng TreeExplainer.
+
+## 7. Vì sao không báo Precision/Recall như bài có nhãn?
 
 Vì file thật không có confirmed fraud label. Báo precision/recall dựa trên nhãn tự bịa sẽ làm sai bản chất bài thi. Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 
@@ -54,7 +77,16 @@ Vì file thật không có confirmed fraud label. Báo precision/recall dựa tr
 - Kiểm tra top-risk có reason codes rõ ràng.
 - Chuẩn bị cơ chế nhận feedback từ investigator để hiệu chỉnh threshold/model sau này.
 
-## 7. Gợi ý vận hành thực tế
+## 8. Live demo
+
+Dự án có hai cách demo:
+
+- CLI: `python src/customer_risk_advisor.py --top-critical 3`.
+- UI/chatbot: `streamlit run src/demo_app.py`.
+
+Streamlit app có overview dashboard, case review, advisor chat và xAI tab.
+
+## 9. Gợi ý vận hành thực tế
 
 - Critical: near-real-time hold/manual review, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
 - High: step-up authentication hoặc manual review trong ngày.
@@ -62,7 +94,7 @@ Vì file thật không có confirmed fraud label. Báo precision/recall dựa tr
 - Medium: theo dõi tăng cường và nâng cấp nếu lặp lại trong 7 ngày.
 - KPI sau khi triển khai: hit rate trong top-K, false positive rate theo phân khúc, review capacity, số case AML escalation, time-to-review.
 
-## 8. Liên hệ với chuẩn nghiệp vụ quốc tế
+## 10. Liên hệ với chuẩn nghiệp vụ quốc tế
 
 - FATF Risk-Based Approach for Banking Sector: ngân hàng nên hiểu mức độ rủi ro, ưu tiên nguồn lực vào nơi rủi ro cao và áp dụng biện pháp giảm thiểu tương ứng. Link: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Risk-based-approach-banking-sector.html
 - FFIEC Authentication and Access Guidance: với digital banking, kiểm soát nên theo hướng layered security, MFA/step-up authentication và tăng kiểm soát khi giao dịch hoặc truy cập có rủi ro cao. Link: https://www.ffiec.gov/news/press-releases/2021/pr-08-11
@@ -70,6 +102,6 @@ Vì file thật không có confirmed fraud label. Báo precision/recall dựa tr
 
 Framework của dự án bám đúng tinh thần này: risk-based, layered controls, review queue theo capacity, và xAI reason codes để investigator kiểm tra được.
 
-## 9. Hạn chế
+## 11. Hạn chế
 
 Đây là framework chuẩn cho dữ liệu không nhãn, không phải model xác nhận fraud. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh threshold, huấn luyện supervised model, và đo Precision@K/Recall@K chính thức.

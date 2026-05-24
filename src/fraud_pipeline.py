@@ -135,6 +135,7 @@ class PipelineConfig:
     iforest_max_samples: int = 50_000
     iforest_contamination: float = 0.02
     surrogate_sample: int = 120_000
+    xai_sample: int = 80_000
 
 
 def parse_date(series: pd.Series) -> pd.Series:
@@ -683,7 +684,37 @@ def build_root_cause_summary(scores: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def write_figures(scores: pd.DataFrame, root_cause: pd.DataFrame, figures_dir: Path) -> None:
+def build_time_stability(scores: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    stability = scores.copy()
+    stability["month"] = pd.to_datetime(stability["TRANS_DATE"]).dt.to_period("M").astype(str)
+    stability["quarter"] = pd.to_datetime(stability["TRANS_DATE"]).dt.to_period("Q").astype(str)
+    stability["is_medium_plus"] = stability["risk_band"].isin(["Medium", "High", "Critical"]).astype(int)
+    stability["is_high_critical"] = stability["risk_band"].isin(["High", "Critical"]).astype(int)
+    monthly = (
+        stability.groupby("month", as_index=False)
+        .agg(
+            transaction_count=("transaction_row_id", "size"),
+            avg_risk_score=("risk_score_0_100", "mean"),
+            p95_risk_score=("risk_score_0_100", lambda s: float(s.quantile(0.95))),
+            medium_plus_rate=("is_medium_plus", "mean"),
+            high_critical_rate=("is_high_critical", "mean"),
+            avg_amount=("TRANS_AMOUNT", "mean"),
+        )
+    )
+    quarterly = (
+        stability.groupby("quarter", as_index=False)
+        .agg(
+            transaction_count=("transaction_row_id", "size"),
+            avg_risk_score=("risk_score_0_100", "mean"),
+            p95_risk_score=("risk_score_0_100", lambda s: float(s.quantile(0.95))),
+            medium_plus_rate=("is_medium_plus", "mean"),
+            high_critical_rate=("is_high_critical", "mean"),
+        )
+    )
+    return monthly, quarterly
+
+
+def write_figures(scores: pd.DataFrame, root_cause: pd.DataFrame, monthly_stability: pd.DataFrame, figures_dir: Path) -> None:
     figures_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="whitegrid")
 
@@ -743,6 +774,23 @@ def write_figures(scores: pd.DataFrame, root_cause: pd.DataFrame, figures_dir: P
     plt.savefig(figures_dir / "activity_transaction_linkage.png", dpi=180)
     plt.close()
 
+    plt.figure(figsize=(10, 5))
+    ax1 = plt.gca()
+    ax1.plot(monthly_stability["month"], monthly_stability["avg_risk_score"], marker="o", color="#2F6B8F", label="Avg risk score")
+    ax1.set_xlabel("Month")
+    ax1.set_ylabel("Average risk score")
+    ax1.tick_params(axis="x", rotation=45)
+    ax2 = ax1.twinx()
+    ax2.plot(monthly_stability["month"], monthly_stability["high_critical_rate"] * 100, marker="s", color="#C46243", label="High/Critical rate")
+    ax2.set_ylabel("High/Critical rate (%)")
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines + lines2, labels + labels2, loc="upper left")
+    plt.title("Monthly stability backtest on 2019 data")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "monthly_stability_backtest.png", dpi=180)
+    plt.close()
+
 
 def build_metrics(
     scores: pd.DataFrame,
@@ -753,6 +801,8 @@ def build_metrics(
     band_thresholds: dict[str, float],
     activity_no_threshold: int,
     feature_importance: pd.Series,
+    monthly_stability: pd.DataFrame,
+    quarterly_stability: pd.DataFrame,
     config: PipelineConfig,
 ) -> dict[str, Any]:
     return {
@@ -779,6 +829,12 @@ def build_metrics(
         "activity_no_late_stage_threshold_p90": int(activity_no_threshold),
         "risk_band_distribution": scores["risk_band"].value_counts().reindex(["Low", "Medium", "High", "Critical"], fill_value=0).astype(int).to_dict(),
         "root_cause_distribution": root_cause.set_index("primary_cause_branch")["high_or_critical_transactions"].astype(int).to_dict(),
+        "monthly_stability": monthly_stability.round(6).to_dict(orient="records"),
+        "quarterly_stability": quarterly_stability.round(6).to_dict(orient="records"),
+        "stability_note": (
+            "The 2019 holdout-style stability check tracks monthly and quarterly review rates. "
+            "Because only one calendar year is provided, this is a temporal robustness check, not a crisis-period backtest."
+        ),
         "review_queue": {
             "medium_or_above_transactions": int(scores["risk_band"].isin(["Medium", "High", "Critical"]).sum()),
             "high_or_critical_transactions": int(scores["risk_band"].isin(["High", "Critical"]).sum()),
@@ -843,6 +899,12 @@ Root-cause summary:
 
 {root_lines}
 
+Monthly stability backtest:
+
+- Framework được kiểm tra theo từng tháng trong năm 2019.
+- `model_metrics.json` có bảng monthly/quarterly stability gồm transaction count, average risk, P95 risk và High/Critical rate.
+- Vì dữ liệu chỉ có năm 2019, đây là temporal robustness check, không phải crisis-period validation.
+
 ## 6. Vì sao không báo Precision/Recall như bài có nhãn?
 
 Vì file thật không có confirmed fraud label. Báo precision/recall dựa trên nhãn tự bịa sẽ làm sai bản chất bài thi. Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
@@ -876,7 +938,15 @@ Framework của dự án bám đúng tinh thần này: risk-based, layered contr
     (report_dir / "final_report_outline.md").write_text(content, encoding="utf-8")
 
 
-def write_outputs(scores: pd.DataFrame, customer_summary: pd.DataFrame, root_cause: pd.DataFrame, metrics: dict[str, Any], config: PipelineConfig) -> None:
+def write_outputs(
+    scores: pd.DataFrame,
+    customer_summary: pd.DataFrame,
+    root_cause: pd.DataFrame,
+    monthly_stability: pd.DataFrame,
+    quarterly_stability: pd.DataFrame,
+    metrics: dict[str, Any],
+    config: PipelineConfig,
+) -> None:
     config.output_dir.mkdir(parents=True, exist_ok=True)
     output_cols = [
         "transaction_row_id",
@@ -903,7 +973,20 @@ def write_outputs(scores: pd.DataFrame, customer_summary: pd.DataFrame, root_cau
     scores.sort_values("risk_score_0_100", ascending=False)[output_cols].to_csv(config.output_dir / "transaction_risk_scores.csv", index=False)
     customer_summary.to_csv(config.output_dir / "customer_risk_summary.csv", index=False)
     root_cause.to_csv(config.output_dir / "root_cause_summary.csv", index=False)
+    monthly_stability.to_csv(config.output_dir / "monthly_stability.csv", index=False)
+    quarterly_stability.to_csv(config.output_dir / "quarterly_stability.csv", index=False)
     scores.sort_values("risk_score_0_100", ascending=False)[output_cols].head(1000).to_csv(config.output_dir / "top_review_queue.csv", index=False)
+    xai_cols = ["transaction_row_id", "CUSTOMER_NUMBER", "risk_score_0_100", "risk_band", "primary_cause_branch", *MODEL_FEATURES]
+    top_n = min(10_000, len(scores), config.xai_sample // 4)
+    random_n = min(config.xai_sample - top_n, len(scores))
+    xai_sample = pd.concat(
+        [
+            scores.sort_values("risk_score_0_100", ascending=False)[xai_cols].head(top_n),
+            scores[xai_cols].sample(random_n, random_state=config.random_state),
+        ],
+        ignore_index=True,
+    ).drop_duplicates("transaction_row_id")
+    xai_sample.to_csv(config.output_dir / "xai_feature_sample.csv", index=False)
     (config.output_dir / "model_metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -920,7 +1003,8 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
     final_scores = finalise_explanations(banded, feature_importance)
     customer_summary = build_customer_summary(final_scores)
     root_cause = build_root_cause_summary(final_scores)
-    write_figures(final_scores, root_cause, config.figures_dir)
+    monthly_stability, quarterly_stability = build_time_stability(final_scores)
+    write_figures(final_scores, root_cause, monthly_stability, config.figures_dir)
     metrics = build_metrics(
         final_scores,
         customer_summary,
@@ -930,10 +1014,12 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
         band_thresholds,
         activity_no_threshold,
         feature_importance,
+        monthly_stability,
+        quarterly_stability,
         config,
     )
     write_report_outline(metrics, root_cause, config.report_dir)
-    write_outputs(final_scores, customer_summary, root_cause, metrics, config)
+    write_outputs(final_scores, customer_summary, root_cause, monthly_stability, quarterly_stability, metrics, config)
     return metrics
 
 
@@ -947,6 +1033,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iforest-fit-sample", type=int, default=200_000)
     parser.add_argument("--iforest-max-samples", type=int, default=50_000)
     parser.add_argument("--surrogate-sample", type=int, default=120_000)
+    parser.add_argument("--xai-sample", type=int, default=80_000)
     return parser.parse_args()
 
 
@@ -961,6 +1048,7 @@ def main() -> None:
         iforest_fit_sample=args.iforest_fit_sample,
         iforest_max_samples=args.iforest_max_samples,
         surrogate_sample=args.surrogate_sample,
+        xai_sample=args.xai_sample,
     )
     metrics = run_pipeline(config)
     print(json.dumps({"outputs": str(config.output_dir.resolve()), "metrics": metrics["review_queue"]}, indent=2, ensure_ascii=False))

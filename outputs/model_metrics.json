@@ -13,7 +13,8 @@
     "iforest_fit_sample": 200000,
     "iforest_max_samples": 50000,
     "iforest_contamination": 0.02,
-    "surrogate_sample": 120000
+    "surrogate_sample": 120000,
+    "xai_sample": 80000
   },
   "row_counts": {
     "transactions_scored": 1418030,
@@ -109,6 +110,151 @@
     "Unauthorized transfer / capital outflow": 7099,
     "AML network / mule-account pattern": 570
   },
+  "monthly_stability": [
+    {
+      "month": "2019-01",
+      "transaction_count": 3203,
+      "avg_risk_score": 45.909763,
+      "p95_risk_score": 71.260614,
+      "medium_plus_rate": 0.121136,
+      "high_critical_rate": 0.040275,
+      "avg_amount": 17308237.068061
+    },
+    {
+      "month": "2019-02",
+      "transaction_count": 6249,
+      "avg_risk_score": 44.225072,
+      "p95_risk_score": 68.801885,
+      "medium_plus_rate": 0.105457,
+      "high_critical_rate": 0.026564,
+      "avg_amount": 8954312.495439
+    },
+    {
+      "month": "2019-03",
+      "transaction_count": 16440,
+      "avg_risk_score": 44.774804,
+      "p95_risk_score": 67.799008,
+      "medium_plus_rate": 0.098054,
+      "high_critical_rate": 0.025122,
+      "avg_amount": 10814909.465815
+    },
+    {
+      "month": "2019-04",
+      "transaction_count": 29846,
+      "avg_risk_score": 45.04377,
+      "p95_risk_score": 68.285626,
+      "medium_plus_rate": 0.10008,
+      "high_critical_rate": 0.025464,
+      "avg_amount": 10724608.320612
+    },
+    {
+      "month": "2019-05",
+      "transaction_count": 52403,
+      "avg_risk_score": 45.310435,
+      "p95_risk_score": 67.802199,
+      "medium_plus_rate": 0.098735,
+      "high_critical_rate": 0.02372,
+      "avg_amount": 10692997.862012
+    },
+    {
+      "month": "2019-06",
+      "transaction_count": 74970,
+      "avg_risk_score": 42.491565,
+      "p95_risk_score": 65.79626,
+      "medium_plus_rate": 0.077978,
+      "high_critical_rate": 0.018501,
+      "avg_amount": 9585414.623505
+    },
+    {
+      "month": "2019-07",
+      "transaction_count": 107564,
+      "avg_risk_score": 40.265605,
+      "p95_risk_score": 63.882826,
+      "medium_plus_rate": 0.062279,
+      "high_critical_rate": 0.014754,
+      "avg_amount": 9216334.589826
+    },
+    {
+      "month": "2019-08",
+      "transaction_count": 142691,
+      "avg_risk_score": 45.948602,
+      "p95_risk_score": 68.283877,
+      "medium_plus_rate": 0.102606,
+      "high_critical_rate": 0.025692,
+      "avg_amount": 8448851.29603
+    },
+    {
+      "month": "2019-09",
+      "transaction_count": 172971,
+      "avg_risk_score": 46.142263,
+      "p95_risk_score": 68.692956,
+      "medium_plus_rate": 0.106821,
+      "high_critical_rate": 0.027386,
+      "avg_amount": 8365298.507767
+    },
+    {
+      "month": "2019-10",
+      "transaction_count": 221976,
+      "avg_risk_score": 46.114045,
+      "p95_risk_score": 67.860898,
+      "medium_plus_rate": 0.100223,
+      "high_critical_rate": 0.024295,
+      "avg_amount": 8749323.529752
+    },
+    {
+      "month": "2019-11",
+      "transaction_count": 266028,
+      "avg_risk_score": 46.072674,
+      "p95_risk_score": 68.358348,
+      "medium_plus_rate": 0.103188,
+      "high_critical_rate": 0.025911,
+      "avg_amount": 8331297.971495
+    },
+    {
+      "month": "2019-12",
+      "transaction_count": 323689,
+      "avg_risk_score": 46.191899,
+      "p95_risk_score": 68.89672,
+      "medium_plus_rate": 0.11005,
+      "high_critical_rate": 0.028042,
+      "avg_amount": 8484079.005082
+    }
+  ],
+  "quarterly_stability": [
+    {
+      "quarter": "2019Q1",
+      "transaction_count": 25892,
+      "avg_risk_score": 44.782528,
+      "p95_risk_score": 68.458313,
+      "medium_plus_rate": 0.102696,
+      "high_critical_rate": 0.027344
+    },
+    {
+      "quarter": "2019Q2",
+      "transaction_count": 157219,
+      "avg_risk_score": 43.915632,
+      "p95_risk_score": 67.000288,
+      "medium_plus_rate": 0.089092,
+      "high_critical_rate": 0.021562
+    },
+    {
+      "quarter": "2019Q3",
+      "transaction_count": 423226,
+      "avg_risk_score": 44.583402,
+      "p95_risk_score": 67.497994,
+      "medium_plus_rate": 0.09408,
+      "high_critical_rate": 0.023604
+    },
+    {
+      "quarter": "2019Q4",
+      "transaction_count": 811693,
+      "avg_risk_score": 46.131533,
+      "p95_risk_score": 68.448719,
+      "medium_plus_rate": 0.105114,
+      "high_critical_rate": 0.026319
+    }
+  ],
+  "stability_note": "The 2019 holdout-style stability check tracks monthly and quarterly review rates. Because only one calendar year is provided, this is a temporal robustness check, not a crisis-period backtest.",
   "review_queue": {
     "medium_or_above_transactions": 141803,
     "high_or_critical_transactions": 35451,

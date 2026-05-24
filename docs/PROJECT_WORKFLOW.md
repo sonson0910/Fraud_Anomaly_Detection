@@ -1,141 +1,274 @@
-# Quy trình làm việc hiện tại của dự án
+# Dự án này đang làm gì và source code giải quyết bài toán như thế nào?
 
-Tài liệu này giải thích dự án đang làm gì, vì sao làm như vậy, các file chính có vai trò gì, và team cần chạy lại pipeline như thế nào.
+Tài liệu này dành cho cả thành viên non-tech và tech trong team. Mục tiêu là để mọi người hiểu cùng một câu chuyện: **bài toán là gì, vì sao khó, dự án đang giải quyết theo logic nào, kết quả đọc ra sao, và source code nào làm phần nào**.
 
-## 1. Dự án đang giải quyết bài toán gì?
+## 1. Bài toán nói bằng ngôn ngữ đời thường
 
-Dự án này phục vụ bài toán 1 của G'Contest 2026: **Fraud & Anomaly Detection - phát hiện gian lận và bất thường trong giao dịch ngân hàng số**.
+Trong ngân hàng số, mỗi ngày có rất nhiều khách hàng đăng nhập, kiểm tra số dư, thêm người nhận tiền, chuyển khoản, thanh toán hóa đơn, dùng thẻ, vay, gửi tiết kiệm. Phần lớn hoạt động là bình thường. Nhưng trong đó có thể có các tình huống rủi ro như:
 
-Vì dữ liệu thật chưa có trong workspace, dự án hiện dùng **synthetic data** được sinh theo đúng data dictionary của BTC. Synthetic data không nhằm giả làm dữ liệu thật, mà dùng để chứng minh toàn bộ quy trình phân tích từ đầu đến cuối:
+- Tài khoản bị người khác chiếm quyền và chuyển tiền đi.
+- Khách hàng đột nhiên chuyển khoản số tiền rất lớn so với thói quen trước đây.
+- Một thiết bị hoặc IP xuất hiện ở nhiều tài khoản khác nhau.
+- Nhiều giao dịch nhỏ/lặp lại được dùng để che giấu dòng tiền.
+- Khách hàng có nhiều hành động nhạy cảm trước giao dịch, ví dụ OTP request, add beneficiary, change password.
 
-1. Hiểu cấu trúc dữ liệu ngân hàng.
-2. Xác định nguyên nhân rủi ro trước khi xây model.
-3. Sinh dữ liệu có hành vi bình thường và bất thường có kiểm soát.
-4. Tạo feature, rule score, anomaly score.
-5. Xuất kết quả risk score, explainability, report và demo.
+Bài toán của nhóm là xây một framework để trả lời:
 
-Luồng kể chuyện chính của dự án là **cause-first**, tức là không bắt đầu bằng model. Team trước hết xác định các nguyên nhân có thể dẫn đến fraud/anomaly, sau đó mới xây framework phát hiện.
+> Giao dịch hoặc khách hàng nào đang bất thường, vì sao bất thường, mức độ rủi ro là bao nhiêu, và ngân hàng nên làm gì tiếp theo?
 
-## 2. Ba nhóm nguyên nhân chính
+Điểm quan trọng: dữ liệu BTC chưa có nhãn rõ ràng kiểu “fraud” hoặc “not fraud”. Vì vậy nếu cố làm supervised AI ngay từ đầu sẽ không hợp lý. Dự án chọn hướng thực tế hơn: **hiểu nguyên nhân trước, tạo baseline hành vi, phát hiện lệch chuẩn, rồi giải thích kết quả**.
 
-Framework hiện chia nguyên nhân rủi ro thành 3 nhánh:
+## 2. Tư duy chính của dự án: không bắt đầu từ model
 
-1. **Account access / identity compromise**
-   - Dấu hiệu: thiết bị mới, IP mới, OTP request, add beneficiary, change password.
-   - Ý nghĩa nghiệp vụ: có khả năng tài khoản bị chiếm đoạt hoặc bị truy cập bất thường.
+Nhiều bài thi dễ sa vào hướng “chọn model gì?”. Nhưng với fraud/anomaly detection, BGK thường đánh giá cao việc hiểu **nguyên nhân rủi ro** trước.
 
-2. **Abnormal transaction behavior**
-   - Dấu hiệu: giao dịch ngoài giờ quen thuộc, amount vượt baseline, tần suất tăng đột biến, dòng tiền ra lớn so với số dư.
-   - Ý nghĩa nghiệp vụ: hành vi giao dịch lệch khỏi lịch sử bình thường của khách hàng.
+Vì vậy dự án đi theo luồng:
 
-3. **Network / AML linkage**
-   - Dấu hiệu: IP/device dùng chung nhiều khách hàng, chuyển khoản ngoài hệ thống, giao dịch số tròn lặp lại.
-   - Ý nghĩa nghiệp vụ: có khả năng liên quan tới money mule, proxy account hoặc laundering pattern.
+```text
+Dữ liệu ngân hàng
+-> Hiểu hành vi bình thường của khách hàng
+-> Xác định nhóm nguyên nhân rủi ro
+-> Tạo feature đo các dấu hiệu đó
+-> Chấm điểm bằng rule + anomaly model
+-> Giải thích vì sao bị cảnh báo
+-> Đề xuất hành động nghiệp vụ
+```
 
-Ba nhánh này giúp report và demo giải thích rõ: **giao dịch bị đánh dấu vì nguyên nhân gì**, không chỉ vì model trả điểm cao.
+Nói ngắn gọn: **model chỉ là một phần của hệ thống**, không phải toàn bộ bài giải.
 
-## 3. Dữ liệu trong dự án
+## 3. Ba nhóm nguyên nhân rủi ro
 
-Synthetic data được sinh vào `data/raw/`, gồm 6 bảng giống data dictionary của BTC:
+Framework hiện chia rủi ro thành 3 nhóm dễ hiểu.
 
-- `Data_Customer.csv`: chân dung khách hàng.
-- `Data_Transaction.csv`: lịch sử giao dịch e-banking.
-- `Data_Activity.csv`: hành vi số theo thời gian.
+### Nhóm 1: Rủi ro truy cập tài khoản
+
+Tên trong output: `Account access / identity compromise`
+
+Ý nghĩa: có thể tài khoản bị truy cập bởi người lạ hoặc bị chiếm quyền.
+
+Dấu hiệu ví dụ:
+
+- Thiết bị mới.
+- IP mới.
+- Có OTP request bất thường.
+- Thêm người nhận mới.
+- Đổi mật khẩu hoặc cập nhật profile gần thời điểm giao dịch.
+
+Ví dụ giải thích cho BGK:
+
+> Giao dịch này đáng nghi vì trước đó tài khoản có hành vi nhạy cảm, sau đó dùng thiết bị/IP mới để thực hiện giao dịch giá trị cao.
+
+### Nhóm 2: Rủi ro hành vi giao dịch bất thường
+
+Tên trong output: `Abnormal transaction behavior`
+
+Ý nghĩa: giao dịch lệch mạnh khỏi thói quen trước đây của chính khách hàng.
+
+Dấu hiệu ví dụ:
+
+- Giao dịch lúc đêm/khoảng giờ không quen thuộc.
+- Số tiền vượt xa mức bình thường của khách hàng.
+- Tần suất giao dịch tăng đột biến trong một ngày.
+- Dòng tiền ra lớn so với số dư bình quân.
+
+Ví dụ giải thích:
+
+> Không phải cứ số tiền lớn là gian lận. Điều đáng nghi là số tiền này lớn bất thường so với chính lịch sử của khách hàng.
+
+### Nhóm 3: Rủi ro mạng lưới và AML
+
+Tên trong output: `Network / AML linkage`
+
+Ý nghĩa: có thể liên quan tới tài khoản trung gian, money mule, hoặc rửa tiền.
+
+Dấu hiệu ví dụ:
+
+- Một IP dùng bởi nhiều khách hàng.
+- Một thiết bị dùng bởi nhiều khách hàng.
+- Chuyển khoản ngoài hệ thống.
+- Giao dịch số tròn, lặp lại, hoặc có pattern dòng tiền ra.
+
+Ví dụ giải thích:
+
+> Giao dịch không chỉ bất thường riêng lẻ mà còn nằm trong mạng lưới IP/device có liên hệ với nhiều tài khoản, nên cần ưu tiên kiểm tra AML.
+
+## 4. Dữ liệu trong dự án
+
+Dữ liệu thật chưa có trong workspace, nên dự án sinh **synthetic data** dựa trên data dictionary của BTC.
+
+Synthetic data nghĩa là dữ liệu giả lập có kiểm soát. Nó không dùng để khẳng định kết quả kinh doanh thật, mà dùng để chứng minh framework có thể chạy end-to-end.
+
+Dự án sinh 6 bảng giống cấu trúc BTC:
+
+- `Data_Customer.csv`: thông tin/chân dung khách hàng.
+- `Data_Transaction.csv`: giao dịch e-banking.
+- `Data_Activity.csv`: hành vi số, ví dụ login, OTP request, add beneficiary.
 - `Data_Deposit.csv`: tiền gửi.
 - `Data_Lending.csv`: tín dụng.
 - `Data_Card.csv`: thẻ.
 
-Ngoài ra có `synthetic_ground_truth.csv`, chứa nhãn anomaly synthetic để kiểm tra mô hình. Nhãn này chỉ dùng cho evaluation, không nằm trong schema gốc của BTC.
+Bảng nối chính là `CUSTOMER_NUMBER`.
 
-Một số điểm quan trọng:
+Dự án cũng sinh một file kiểm chứng riêng:
 
-- `CUSTOMER_NUMBER` là key nối giữa các bảng.
-- `ACTIVITY_NO` được hiểu như thứ tự hành vi: số nhỏ là hành động sớm, số lớn là hành động sau hoặc nhạy cảm hơn.
-- Dữ liệu trải từ năm 2019 đến 2026 để kiểm tra tính ổn định qua các giai đoạn thời gian.
-- Các CSV lớn trong `data/raw/` không được commit lên GitHub vì có thể tái sinh bằng script.
+- `synthetic_ground_truth.csv`: đánh dấu giao dịch nào là anomaly synthetic.
 
-## 4. Vai trò các file chính
+File ground truth này chỉ dùng để đánh giá mô hình trong môi trường giả lập. Khi có dữ liệu thật, phần này sẽ được thay bằng nhãn thật nếu BTC cung cấp hoặc bằng kết quả manual review.
 
-### `src/generate_synthetic_data.py`
+## 5. Dự án tạo dữ liệu bất thường như thế nào?
 
-Sinh toàn bộ synthetic data.
+Source code cố tình cài vào dữ liệu một số tình huống rủi ro thường gặp:
 
-Script này tạo:
+- `ACCOUNT_TAKEOVER`: tài khoản bị chiếm quyền, dùng thiết bị/IP mới, giao dịch lúc giờ lạ.
+- `UNAUTHORIZED_TRANSFER`: chuyển khoản trái phép hoặc khác thói quen.
+- `MONEY_LAUNDERING_PROXY`: pattern giống tài khoản trung gian/rửa tiền.
+- `BEHAVIORAL_OUTLIER`: hành vi đột ngột khác baseline.
+
+Nhờ vậy, khi pipeline chạy xong, team có thể kiểm tra xem framework có bắt đúng các tình huống bất thường đã cài vào hay không.
+
+## 6. Source code xử lý bài toán theo các bước nào?
+
+### Bước 1: Sinh dữ liệu
+
+File phụ trách: `src/generate_synthetic_data.py`
+
+File này tạo dữ liệu từ năm 2019 đến 2026, gồm:
 
 - 3,000 khách hàng.
 - 150,000 giao dịch.
 - 220,000 activity logs.
-- Monthly product snapshots cho deposit, lending, card.
-- 2,700 giao dịch anomaly được cài nhãn.
+- Dữ liệu tháng về tiền gửi, vay và thẻ.
+- 2,700 giao dịch anomaly synthetic.
 
-Các anomaly được inject theo các pattern như account takeover, unauthorized transfer, money laundering proxy và behavioral outlier.
+Kết quả được ghi vào `data/raw/`.
 
-### `src/fraud_pipeline.py`
+### Bước 2: Kiểm tra dữ liệu
 
-Đây là pipeline chính.
+File phụ trách: `src/fraud_pipeline.py`
 
-Script này làm các bước:
+Pipeline kiểm tra mỗi bảng có đủ cột như data dictionary không, có thiếu dữ liệu không, có duplicate không. Mục tiêu là đảm bảo bài phân tích không xây trên dữ liệu sai cấu trúc.
 
-1. Load dữ liệu raw.
-2. Validate schema.
-3. Feature engineering.
-4. Tính root-cause rule score.
-5. Chạy Isolation Forest để phát hiện điểm bất thường đa chiều.
-6. Kết hợp thành risk score cuối cùng.
-7. Xuất transaction risk score, customer summary, root-cause summary, metrics, figures và report outline.
+### Bước 3: Tạo feature
 
-Risk score cuối cùng hiện dùng công thức:
+Feature là các biến dùng để mô tả hành vi.
+
+Ví dụ:
+
+- Giao dịch có xảy ra ban đêm không?
+- Số tiền có vượt mức P95 lịch sử của khách hàng không?
+- Hôm đó khách hàng có nhiều hoạt động nhạy cảm không?
+- Thiết bị/IP này có dùng bởi nhiều khách hàng không?
+- Số tiền giao dịch có lớn so với số dư bình quân không?
+
+Đây là bước chuyển từ dữ liệu thô sang tín hiệu nghiệp vụ.
+
+### Bước 4: Chấm điểm bằng rule
+
+Rule là các luật dễ hiểu.
+
+Ví dụ:
+
+```text
+Nếu giao dịch xảy ra ban đêm + số tiền cao bất thường + thiết bị mới
+=> tăng điểm rủi ro
+```
+
+Rule giúp hệ thống giải thích được vì sao giao dịch bị cảnh báo. Đây là phần rất quan trọng với fraud/risk, vì ngân hàng không thể chỉ nói “model bảo vậy”.
+
+### Bước 5: Chấm điểm bằng anomaly model
+
+Dự án dùng `Isolation Forest`, một mô hình phát hiện điểm bất thường khi không có label fraud thật.
+
+Hiểu đơn giản:
+
+> Model học hình dạng chung của hành vi bình thường. Những giao dịch quá khác đám đông hoặc khác baseline sẽ bị đẩy điểm rủi ro lên cao.
+
+Mô hình này không thay thế rule. Nó bổ sung thêm góc nhìn đa chiều mà rule đơn lẻ có thể bỏ sót.
+
+### Bước 6: Kết hợp thành risk score cuối cùng
+
+Risk score cuối cùng hiện được tính theo công thức:
 
 ```text
 risk_score = 60% model_score + 40% rule_score
 ```
 
-Lý do dùng công thức hybrid: rule score dễ giải thích, model score bắt được pattern đa chiều hơn.
+Sau đó hệ thống gán nhãn:
 
-### `src/build_notebook.py`
+- `Low`: rủi ro thấp.
+- `Medium`: cần theo dõi.
+- `High`: nên step-up authentication hoặc review.
+- `Critical`: nên giữ giao dịch/manual review/AML escalation.
 
-Tạo lại notebook kỹ thuật ở:
+### Bước 7: Giải thích kết quả
+
+Mỗi giao dịch được xuất ra:
+
+- `risk_score_0_100`: điểm rủi ro.
+- `risk_band`: Low/Medium/High/Critical.
+- `primary_cause_branch`: nhánh nguyên nhân chính.
+- `top_reasons`: các lý do cụ thể.
+- `recommended_action`: hành động đề xuất.
+
+Ví dụ một kết quả có thể đọc như sau:
+
+> Giao dịch của khách hàng CUS002645 bị xếp Critical vì thuộc nhóm Network / AML linkage, xảy ra lúc 23h, số tiền cao bất thường, dòng tiền ra lớn so với số dư, dùng thiết bị mới, và model anomaly cũng đánh giá tổng thể cao. Hành động đề xuất là giữ giao dịch để manual review và AML escalation nếu pattern lặp lại.
+
+## 7. Các output chính dùng để làm bài
+
+Sau khi chạy pipeline, các file quan trọng là:
+
+- `outputs/transaction_risk_scores.csv`: bảng chấm điểm từng giao dịch.
+- `outputs/customer_risk_summary.csv`: bảng tổng hợp rủi ro theo khách hàng.
+- `outputs/root_cause_summary.csv`: bảng tóm tắt theo 3 nhóm nguyên nhân.
+- `outputs/model_metrics.json`: metrics mô hình.
+- `outputs/figures/*.png`: biểu đồ dùng cho report.
+- `report/final_report_outline.md`: nội dung report dạng markdown.
+- `report/final_report_outline.pdf`: bản PDF của report outline.
+- `notebooks/01_fraud_anomaly_detection.ipynb`: technical notebook.
+
+## 8. Demo hoạt động như thế nào?
+
+File demo:
 
 ```text
-notebooks/01_fraud_anomaly_detection.ipynb
+src/customer_risk_advisor.py
 ```
 
-Notebook dùng để nộp technical notebook cho BGK. Nội dung gồm setup, sinh dữ liệu, schema validation, EDA, root-cause hypothesis, feature engineering, model, evaluation, explainability và recommendation.
+Demo đọc kết quả đã được pipeline tạo ra và trả lời theo kiểu risk advisor.
 
-### `src/customer_risk_advisor.py`
-
-Demo dạng risk advisor.
-
-Script này đọc output đã có và giải thích rủi ro theo `CUSTOMER_NUMBER` hoặc `transaction_row_id`. Đây là phần có thể dùng để demo live hoặc quay video:
+Ví dụ:
 
 ```bash
-python src/customer_risk_advisor.py --top-critical 3
-python src/customer_risk_advisor.py --customer-id CUS000001
-python src/customer_risk_advisor.py --transaction-id TRX0000001
+python src/customer_risk_advisor.py --top-critical 1
 ```
 
-Ý tưởng mở rộng: nếu có API LLM, có thể biến phần này thành chatbot giải thích cho risk officer. LLM không cần là lõi phát hiện fraud; nó phù hợp hơn ở lớp giải thích và hỏi đáp.
+Kết quả demo sẽ cho biết:
 
-## 5. Output chính
+- Giao dịch nào bị flag.
+- Thuộc khách hàng nào.
+- Risk band và risk score.
+- Nguyên nhân chính.
+- Vì sao bị cảnh báo.
+- Ngân hàng nên làm gì.
 
-Sau khi chạy pipeline, các output quan trọng nằm trong `outputs/`:
+Đây là phần có thể dùng để quay video hoặc demo live. Nếu muốn phát triển thêm, có thể biến demo này thành chatbot/LLM assistant để risk officer hỏi đáp tự nhiên hơn.
 
-- `transaction_risk_scores.csv`: điểm rủi ro từng giao dịch.
-- `customer_risk_summary.csv`: tổng hợp rủi ro theo khách hàng.
-- `root_cause_summary.csv`: tóm tắt theo 3 nhánh nguyên nhân.
-- `model_metrics.json`: metrics mô hình.
-- `figures/*.png`: biểu đồ cho report.
+## 9. Người non-tech nên nhớ điều gì?
 
-Report nằm trong `report/`:
+Nếu cần giải thích dự án trong 30 giây:
 
-- `final_report_outline.md`: report outline tiếng Việt.
-- `final_report_outline.pdf`: bản PDF xuất từ markdown.
+> Dự án xây một hệ thống phát hiện giao dịch bất thường cho ngân hàng số. Vì dữ liệu không có nhãn gian lận, nhóm không dùng supervised AI ngay. Thay vào đó, nhóm phân tích các nguyên nhân rủi ro trước, tạo baseline hành vi khách hàng, dùng rule và anomaly model để chấm điểm, rồi giải thích rõ vì sao từng giao dịch bị cảnh báo và ngân hàng nên xử lý thế nào.
 
-Notebook nằm trong `notebooks/`.
+Nếu cần giải thích trong 3 ý:
 
-## 6. Quy trình chạy lại từ đầu
+1. Dự án không chỉ dự đoán, mà còn giải thích nguyên nhân.
+2. Framework có 3 nhóm rủi ro: truy cập tài khoản, hành vi giao dịch, mạng lưới/AML.
+3. Kết quả cuối cùng là risk score, reason codes và recommended action.
 
-Từ thư mục project, tạo môi trường và cài thư viện:
+## 10. Người tech cần biết gì để chạy lại?
+
+Cài môi trường:
 
 ```bash
 python3 -m venv .venv
@@ -143,7 +276,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Chạy lại toàn bộ pipeline:
+Chạy lại toàn bộ:
 
 ```bash
 python src/generate_synthetic_data.py
@@ -164,38 +297,27 @@ Chạy demo:
 python src/customer_risk_advisor.py --top-critical 1
 ```
 
-## 7. Những file không nên commit
+## 11. Những file không đưa lên GitHub
 
-Các file/thư mục sau không đưa lên GitHub:
+Một số file lớn có thể tái sinh nên không commit:
 
-- `.venv/`
-- `.pytest_cache/`
-- `__pycache__/`
 - `data/raw/*.csv`
 - `outputs/transaction_risk_scores.csv`
 - `outputs/customer_risk_summary.csv`
+- `.venv/`
+- cache như `.pytest_cache/`, `__pycache__/`
 
-Lý do: các file này nặng hoặc có thể tái sinh. Repo chỉ cần giữ source code, notebook, report, figures nhẹ và metrics summary.
+Repo GitHub chỉ giữ source code, notebook, report, figures nhẹ và metrics summary.
 
-## 8. Cách giải thích dự án với BGK
+## 12. Nếu có dữ liệu thật thì làm gì tiếp?
 
-Thông điệp nên dùng:
+Khi BTC cung cấp dữ liệu thật, team nên:
 
-> Vì dữ liệu không có nhãn fraud, nhóm không bắt đầu bằng supervised AI. Nhóm xây dựng risk taxonomy trước, tạo baseline hành vi khách hàng, phát hiện lệch chuẩn bằng rule + unsupervised anomaly detection, sau đó dùng xAI để giải thích từng cảnh báo.
+1. Thay phần synthetic data bằng dữ liệu thật.
+2. Giữ lại pipeline feature engineering và scoring.
+3. Recalibrate threshold Low/Medium/High/Critical.
+4. Nếu có label fraud thật, thêm supervised model như XGBoost/LightGBM.
+5. Dùng SHAP hoặc feature importance để tăng phần xAI.
+6. Cập nhật report bằng insight từ dữ liệu thật.
 
-Điểm mạnh cần nhấn:
-
-- Có logic nguyên nhân trước khi có model.
-- Có 3 nhánh rủi ro rõ ràng, gắn với nghiệp vụ ngân hàng.
-- Không phụ thuộc vào label fraud.
-- Có kiểm tra stability theo thời gian từ 2019 đến 2026.
-- Có explainability ở cấp giao dịch.
-- Có demo advisor để nhập khách hàng/giao dịch và nhận giải thích.
-
-## 9. Việc team có thể làm tiếp
-
-- Chuyển report outline thành slide PDF đẹp hơn.
-- Quay video demo `customer_risk_advisor.py`.
-- Thêm dashboard Streamlit nếu còn thời gian.
-- Khi có dữ liệu thật, thay synthetic data bằng dữ liệu BTC, giữ nguyên pipeline feature/model/report.
-- Nếu có label fraud thật, bổ sung supervised benchmark như XGBoost/LightGBM và SHAP.
+Nói cách khác, synthetic data chỉ là bản mô phỏng để chứng minh framework; phần cốt lõi cần giữ là logic nguyên nhân, feature, scoring, explainability và action recommendation.

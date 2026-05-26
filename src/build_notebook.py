@@ -92,6 +92,9 @@ def build_notebook(output_path: Path) -> None:
             "- Nhóm không có customer beneficiary không được đưa vào mạng lưới customer-to-customer money mule.\n"
             "- Nếu merchant nội bộ/tín dụng không có customer beneficiary nhưng đi cùng tín hiệu bất thường, pipeline đưa vào reason code để review.\n"
             "- Overdue lending/credit được quy về nhóm rủi ro 1-5 để làm bối cảnh khách hàng, nhưng không dùng một mình để kết luận fraud.\n"
+            "- Baseline hiện được đóng gói thành `customer_360_baseline.csv` với 4 nhóm Transactional, Financial, Environmental, Behavioral.\n"
+            "- Threshold chính có thêm ngưỡng IQR cá nhân hóa `Q3 + 1.5*IQR` và rolling window 30/60/90 ngày.\n"
+            "- Hành động cuối dùng hybrid decision matrix: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Watchlist, no-alert = Allow.\n"
             "- Vì title là giảm thiểu rủi ro, mục tiêu tối ưu ưu tiên recall/prevention coverage; false positive rate vẫn được báo để kiểm soát trải nghiệm khách hàng."
         ),
         nbf.v4.new_markdown_cell("## 6. Run Full Pipeline"),
@@ -109,13 +112,27 @@ def build_notebook(output_path: Path) -> None:
         nbf.v4.new_code_cell(
             "risk = pd.read_csv(OUTPUT_DIR / 'transaction_risk_scores.csv')\n"
             "customers = pd.read_csv(OUTPUT_DIR / 'customer_risk_summary.csv')\n"
+            "customer_360 = pd.read_csv(OUTPUT_DIR / 'customer_360_baseline.csv')\n"
             "root_cause = pd.read_csv(OUTPUT_DIR / 'root_cause_summary.csv')\n"
             "risk.head()"
         ),
         nbf.v4.new_code_cell(
             "risk['risk_band'].value_counts().reindex(['Low','Medium','High','Critical'])"
         ),
-        nbf.v4.new_markdown_cell("## 8. Monthly / Quarterly Stability Backtest"),
+        nbf.v4.new_markdown_cell(
+            "## 8. Customer 360 Baseline\n\n"
+            "Mỗi khách hàng là một dòng, mô tả 'DNA tài chính' hiện tại bằng 4 nhóm baseline: Transactional, Financial, Environmental và Behavioral. "
+            "Rolling window 30/60/90 ngày giúp baseline phản ánh hành vi gần đây hơn thay vì đóng băng theo toàn bộ lịch sử."
+        ),
+        nbf.v4.new_code_cell("customer_360.head()"),
+        nbf.v4.new_code_cell(
+            "customer_360[[\n"
+            "    'transactional_iqr_upper_amount', 'rolling_30d_txn_count', 'rolling_90d_amount_avg',\n"
+            "    'financial_worst_credit_risk_group', 'environmental_trusted_device_count',\n"
+            "    'behavioral_avg_daily_activity_count'\n"
+            "]].describe().T"
+        ),
+        nbf.v4.new_markdown_cell("## 9. Monthly / Quarterly Stability Backtest"),
         nbf.v4.new_code_cell(
             "monthly = pd.read_csv(OUTPUT_DIR / 'monthly_stability.csv')\n"
             "quarterly = pd.read_csv(OUTPUT_DIR / 'quarterly_stability.csv')\n"
@@ -132,15 +149,25 @@ def build_notebook(output_path: Path) -> None:
             "plt.title('Monthly stability backtest on 2019 data')\n"
             "plt.tight_layout()"
         ),
-        nbf.v4.new_markdown_cell("## 9. Explainability Examples"),
+        nbf.v4.new_markdown_cell("## 10. Explainability Examples"),
         nbf.v4.new_code_cell(
             "risk[[\n"
             "    'transaction_row_id', 'CUSTOMER_NUMBER', 'TRANS_DATE', 'TRANS_HOUR', 'TRANS_LV1', 'TRANS_LV2',\n"
-            "    'TRANS_AMOUNT', 'risk_score_0_100', 'risk_band', 'primary_cause_branch',\n"
-            "    'top_reasons', 'recommended_action'\n"
+            "    'TRANS_AMOUNT', 'rule_score_0_100', 'model_fraud_probability', 'risk_score_0_100',\n"
+            "    'risk_band', 'hybrid_decision', 'primary_cause_branch', 'top_reasons', 'recommended_action'\n"
             "]].head(10)"
         ),
-        nbf.v4.new_markdown_cell("## 10. SHAP xAI Surrogate"),
+        nbf.v4.new_markdown_cell(
+            "## 11. Hybrid Decision Matrix\n\n"
+            "Ma trận lai giúp biến Rule + ML thành hành động thực tế. Đây là phần quan trọng để bài không chỉ dừng ở phát hiện, mà chuyển sang prevention operation."
+        ),
+        nbf.v4.new_code_cell(
+            "risk['hybrid_decision'].value_counts()"
+        ),
+        nbf.v4.new_code_cell(
+            "pd.crosstab(risk['hybrid_decision'], risk['prevention_action'])"
+        ),
+        nbf.v4.new_markdown_cell("## 12. SHAP xAI Surrogate"),
         nbf.v4.new_code_cell(
             "# Run once after the main pipeline if SHAP files do not exist:\n"
             "# !python src/xai_shap_engine.py\n"
@@ -150,7 +177,7 @@ def build_notebook(output_path: Path) -> None:
         ),
         nbf.v4.new_code_cell("shap_local.head(10)"),
         nbf.v4.new_markdown_cell(
-            "## 11. Evaluation With Weak Labels\n\n"
+            "## 13. Evaluation With Weak Labels\n\n"
             "Vì dữ liệu không có confirmed fraud label, các metric dưới đây được đo theo `rule_fraud_label`. "
             "Đây là weak label sinh từ rule nghiệp vụ, không phải nhãn investigator xác nhận. Cách trình bày đúng là: "
             "framework hiện đo khả năng model học lại và vận hành hóa rule engine, đồng thời chuẩn bị feedback loop "
@@ -170,7 +197,7 @@ def build_notebook(output_path: Path) -> None:
         nbf.v4.new_code_cell(
             "pd.DataFrame(metrics['top_surrogate_features'].items(), columns=['feature', 'importance']).head(15)"
         ),
-        nbf.v4.new_markdown_cell("## 12. Report Figures"),
+        nbf.v4.new_markdown_cell("## 14. Report Figures"),
         nbf.v4.new_code_cell(
             "from IPython.display import Image, display\n"
             "for path in sorted((OUTPUT_DIR / 'figures').glob('*.png')):\n"
@@ -178,7 +205,7 @@ def build_notebook(output_path: Path) -> None:
             "    display(Image(filename=str(path)))"
         ),
         nbf.v4.new_markdown_cell(
-            "## 13. Live Demo And Slide Deck\n\n"
+            "## 15. Live Demo And Slide Deck\n\n"
             "Sau khi chạy pipeline, có thể demo bằng CLI hoặc Streamlit:\n\n"
             "```bash\n"
             "python src/customer_risk_advisor.py --top-critical 3\n"

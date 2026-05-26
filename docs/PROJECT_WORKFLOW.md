@@ -58,18 +58,19 @@ Luồng xử lý:
 1. Đọc dữ liệu thật từ `Processed_Data/`.
 2. Chuẩn hóa tên cột theo data dictionary. Ví dụ file thật có `TRANS_LV1`, trong dictionary ghi `TRXN_LV1`; pipeline hiểu đây là cùng một ý nghĩa.
 3. Aggregate bảng activity rất lớn theo `CUSTOMER_NUMBER` và ngày.
-4. Tạo baseline từng khách hàng: số tiền thường giao dịch, P95 số tiền, tần suất giao dịch/ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
+4. Tạo baseline từng khách hàng: số tiền thường giao dịch, P95 số tiền, ngưỡng IQR, rolling window 30/60/90 ngày, tần suất giao dịch/ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
 5. Ghép thêm thông tin sản phẩm theo tháng: deposit, lending, card.
 6. Tách `Beneficiary_CUSTOMER_NUMBER = 0/0.0/NaN` thành non-customer/merchant beneficiary, không đưa nhóm này vào mạng lưới money mule như một khách hàng thật.
 7. Tạo nhóm overdue tín dụng theo 5 bậc rủi ro dựa trên số ngày quá hạn.
-8. Chấm điểm từng nhánh nguyên nhân bằng rule-based score.
-9. Tạo `rule_fraud_label` từ rule score: nhóm fraud-by-rules, clean-by-rules và uncertain.
-10. Huấn luyện supervised prevention model học từ weak label này.
-11. Model trả `model_fraud_probability`, từ đó chia risk band: Low, Medium, High, Critical.
-12. Gán hành động vận hành: Allow, Enhanced Monitoring, Step-up Authentication, Block/Hold.
-13. Xuất reason codes và recommended action cho từng giao dịch.
-14. Tạo monthly/quarterly stability backtest để kiểm tra prevention rate có ổn định theo thời gian không.
-15. Chạy SHAP xAI engine để giải thích prevention score bằng surrogate tree model.
+8. Đóng gói `outputs/customer_360_baseline.csv`: mỗi khách hàng một dòng với 4 nhóm Transactional, Financial, Environmental, Behavioral.
+9. Chấm điểm từng nhánh nguyên nhân bằng rule-based score.
+10. Tạo `rule_fraud_label` từ rule score: nhóm fraud-by-rules, clean-by-rules và uncertain.
+11. Huấn luyện supervised prevention model học từ weak label này.
+12. Model trả `model_fraud_probability`, từ đó chia risk band: Low, Medium, High, Critical.
+13. Gộp Rule + ML bằng hybrid decision matrix để ra hành động vận hành.
+14. Xuất reason codes và recommended action cho từng giao dịch.
+15. Tạo monthly/quarterly stability backtest để kiểm tra prevention rate có ổn định theo thời gian không.
+16. Chạy SHAP xAI engine để giải thích prevention score bằng surrogate tree model.
 
 ## 5. Vì sao vẫn dùng supervised model khi không có nhãn fraud thật?
 
@@ -108,24 +109,43 @@ xAI có hai lớp:
 
 Nếu máy có đủ runtime cho XGBoost thì script có thể dùng XGBoost. Nếu thiếu `libomp` trên macOS, script tự fallback sang scikit-learn tree surrogate và vẫn xuất SHAP thật.
 
-## 9. Các file output cần xem
+## 9. Customer 360, IQR và Hybrid Matrix
+
+`outputs/customer_360_baseline.csv` là bảng giải thích “bình thường là gì” ở cấp khách hàng. Bảng này gom 4 nhóm baseline:
+
+- Transactional: số lượng giao dịch, số tiền trung bình/P95/IQR, giờ giao dịch thường gặp, rolling 30/60/90 ngày.
+- Financial: CASA, tiền gửi có kỳ hạn, thẻ, khoản vay, utilization, overdue và nhóm rủi ro tín dụng.
+- Environmental: thiết bị tin cậy, IP quen thuộc, người thụ hưởng cá nhân đã thấy, IP/device dùng chung.
+- Behavioral: activity app, activity đêm, late-stage activity, activity liên quan xác thực/tài khoản.
+
+Ngưỡng IQR dùng công thức `Q3 + 1.5 * IQR`. Đây là cách đặt ngưỡng có cơ sở thống kê, dễ giải thích hơn việc chọn số cảm tính. Nếu giao dịch vượt ngưỡng IQR cá nhân hóa, rule engine sẽ cộng điểm rủi ro và thêm reason code.
+
+Hybrid decision matrix dùng để biến dự báo thành hành động:
+
+- Rule báo + ML báo: `Block/Hold`.
+- Rule báo + ML chưa báo: `Step-up/eKYC`.
+- Rule chưa báo + ML báo: `Special Watchlist`.
+- Cả hai không báo: `Allow`.
+
+## 10. Các file output cần xem
 
 - `outputs/transaction_risk_scores.csv`: bảng giao dịch đã scored, có risk band và prevention action.
 - `outputs/customer_risk_summary.csv`: tổng hợp rủi ro theo khách hàng.
+- `outputs/customer_360_baseline.csv`: hồ sơ baseline 360 độ cho từng khách hàng.
 - `outputs/top_review_queue.csv`: 1,000 giao dịch đầu để demo nhanh.
 - `outputs/root_cause_summary.csv`: tổng hợp số case theo ba nhánh nguyên nhân.
 - `outputs/monthly_stability.csv`: kiểm tra stability theo tháng.
 - `outputs/quarterly_stability.csv`: kiểm tra stability theo quý.
 - `outputs/shap_feature_importance.csv`: global SHAP importance.
 - `outputs/shap_local_explanations.csv`: local SHAP explanation cho top case.
-- `outputs/model_metrics.json`: thông tin data quality, weak-label model metrics, prevention coverage và protected amount.
+- `outputs/model_metrics.json`: thông tin data quality, Customer 360, weak-label model metrics, hybrid matrix, prevention coverage và protected amount.
 - `outputs/figures/`: chart dùng cho report/slide.
 - `report/final_report_outline.md`: khung báo cáo cuối.
 - `report/final_slide_deck.pdf`: slide deck PDF để nộp/trình bày.
 - `report/final_slide_deck.pptx`: slide deck có thể chỉnh sửa.
 - `notebooks/01_fraud_anomaly_detection.ipynb`: technical notebook.
 
-## 10. Cách demo
+## 11. Cách demo
 
 Chạy toàn bộ pipeline:
 
@@ -171,7 +191,7 @@ streamlit run src/demo_app.py
 
 Kết quả demo sẽ trả về risk band, prevention action, nhánh nguyên nhân chính, lý do bị flag và hành động đề xuất.
 
-## 11. Cách đọc một dòng kết quả
+## 12. Cách đọc một dòng kết quả
 
 Một giao dịch Critical không có nghĩa là “đã chắc chắn gian lận”. Nó có nghĩa là supervised prevention model, học từ weak labels của rule engine, đánh giá giao dịch này cần Block/Hold trước khi xử lý tiếp.
 
@@ -180,13 +200,14 @@ Các trường quan trọng:
 - `risk_score_0_100`: điểm rủi ro tổng.
 - `risk_band`: mức Low/Medium/High/Critical.
 - `prevention_action`: Allow, Enhanced Monitoring, Step-up Authentication hoặc Block/Hold.
+- `hybrid_decision`: Rule+ML matrix giải thích vì sao hệ thống chọn action.
 - `rule_fraud_label`: weak label do rule tạo ra.
 - `model_fraud_probability`: xác suất do supervised prevention model dự báo.
 - `primary_cause_branch`: nhánh nguyên nhân chính.
 - `top_reasons`: lý do cụ thể.
 - `recommended_action`: hành động đề xuất cho risk officer.
 
-## 12. Điều cần nói rõ với BGK
+## 13. Điều cần nói rõ với BGK
 
 Vì không có fraud label thật, dự án không claim Precision/Recall theo confirmed fraud. Thay vào đó, dự án báo performance, confusion matrix, recall, precision, false-positive rate và prevention coverage theo weak label, đồng thời nói rõ weak label là sản phẩm của rule engine.
 
@@ -197,7 +218,7 @@ Vì không có fraud label thật, dự án không claim Precision/Recall theo c
 - có xAI/reason code,
 - có thể hiệu chỉnh sang confirmed-label supervised learning sau khi có feedback từ investigator.
 
-## 13. Hướng nâng cấp nếu có thời gian
+## 14. Hướng nâng cấp nếu có thời gian
 
 - Thêm graph/network visualization cho IP/device/beneficiary.
 - Khi mentor/BTC cung cấp nhãn review đã xác minh, thay weak label bằng confirmed label và đo Precision@K/Recall@K chính thức.

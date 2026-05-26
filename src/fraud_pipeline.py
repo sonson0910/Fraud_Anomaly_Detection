@@ -89,10 +89,24 @@ MODEL_FEATURES = [
     "merchant_wallet_or_qr_flag",
     "amount_zscore_customer",
     "amount_vs_customer_p95",
+    "customer_amount_iqr_upper",
+    "amount_vs_iqr_upper",
     "amount_global_percentile",
     "daily_txn_count",
     "daily_txn_count_ratio",
     "daily_amount_ratio",
+    "customer_daily_count_iqr_upper",
+    "daily_count_vs_iqr_upper",
+    "customer_daily_amount_iqr_upper",
+    "daily_amount_vs_iqr_upper",
+    "rolling_30d_txn_count",
+    "rolling_60d_txn_count",
+    "rolling_90d_txn_count",
+    "rolling_30d_amount_sum",
+    "rolling_60d_amount_sum",
+    "rolling_90d_amount_sum",
+    "rolling_30d_external_transfer_count",
+    "rolling_90d_amount_avg",
     "daily_external_transfer_count",
     "daily_activity_count",
     "night_activity_count",
@@ -305,6 +319,13 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series | float, default: 
     return result.replace([np.inf, -np.inf], np.nan).fillna(default)
 
 
+def _iqr_upper(series: pd.Series) -> float:
+    q1 = series.quantile(0.25)
+    q3 = series.quantile(0.75)
+    iqr = q3 - q1
+    return float(q3 + 1.5 * iqr)
+
+
 def credit_risk_group(overdue_days: pd.Series) -> pd.Series:
     return pd.cut(
         overdue_days.fillna(0),
@@ -365,6 +386,7 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
             customer_amount_mean=("TRANS_AMOUNT", "mean"),
             customer_amount_std=("TRANS_AMOUNT", "std"),
             customer_amount_p95=("TRANS_AMOUNT", lambda s: float(s.quantile(0.95))),
+            customer_amount_iqr_upper=("TRANS_AMOUNT", _iqr_upper),
             customer_night_rate=("is_night_hour", "mean"),
             customer_first_txn_date=("TRANS_DATE", "min"),
             customer_unique_devices=("Device_ID_Hash", "nunique"),
@@ -377,8 +399,10 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
     amount_std_fallback = float(trx["customer_amount_std"].median(skipna=True) or 1.0)
     trx["customer_amount_std"] = trx["customer_amount_std"].replace(0, np.nan).fillna(amount_std_fallback)
     trx["customer_amount_p95"] = trx["customer_amount_p95"].replace(0, np.nan).fillna(trx["TRANS_AMOUNT"].quantile(0.95))
+    trx["customer_amount_iqr_upper"] = trx["customer_amount_iqr_upper"].replace(0, np.nan).fillna(_iqr_upper(trx["TRANS_AMOUNT"]))
     trx["amount_zscore_customer"] = ((trx["TRANS_AMOUNT"] - trx["customer_amount_mean"]) / trx["customer_amount_std"]).clip(-10, 50)
     trx["amount_vs_customer_p95"] = _safe_divide(trx["TRANS_AMOUNT"], trx["customer_amount_p95"], default=0).clip(0, 50)
+    trx["amount_vs_iqr_upper"] = _safe_divide(trx["TRANS_AMOUNT"], trx["customer_amount_iqr_upper"], default=0).clip(0, 50)
 
     daily = (
         trx.groupby(["CUSTOMER_NUMBER", "TRANS_DATE"], as_index=False)
@@ -393,17 +417,47 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
         daily.groupby("CUSTOMER_NUMBER", as_index=False)
         .agg(
             daily_txn_count_mean=("daily_txn_count", "mean"),
-            daily_amount_sum_mean=("daily_amount_sum", "mean"),
-            daily_external_transfer_mean=("daily_external_transfer_count", "mean"),
-        )
+                daily_amount_sum_mean=("daily_amount_sum", "mean"),
+                daily_external_transfer_mean=("daily_external_transfer_count", "mean"),
+                customer_daily_count_iqr_upper=("daily_txn_count", _iqr_upper),
+                customer_daily_amount_iqr_upper=("daily_amount_sum", _iqr_upper),
+            )
     )
     trx = trx.merge(daily, on=["CUSTOMER_NUMBER", "TRANS_DATE"], how="left")
     trx = trx.merge(daily_baseline, on="CUSTOMER_NUMBER", how="left")
     trx["daily_txn_count_ratio"] = _safe_divide(trx["daily_txn_count"], trx["daily_txn_count_mean"], default=1).clip(0, 50)
     trx["daily_amount_ratio"] = _safe_divide(trx["daily_amount_sum"], trx["daily_amount_sum_mean"], default=1).clip(0, 100)
+    trx["daily_count_vs_iqr_upper"] = _safe_divide(trx["daily_txn_count"], trx["customer_daily_count_iqr_upper"], default=1).clip(0, 50)
+    trx["daily_amount_vs_iqr_upper"] = _safe_divide(trx["daily_amount_sum"], trx["customer_daily_amount_iqr_upper"], default=1).clip(0, 100)
     trx["daily_external_transfer_ratio"] = _safe_divide(
         trx["daily_external_transfer_count"], trx["daily_external_transfer_mean"], default=0
     ).clip(0, 50)
+
+    daily_window = daily.sort_values(["CUSTOMER_NUMBER", "TRANS_DATE"]).reset_index(drop=True)
+    for window in [30, 60, 90]:
+        daily_window[f"rolling_{window}d_txn_count"] = daily_window.groupby("CUSTOMER_NUMBER")["daily_txn_count"].transform(
+            lambda s: s.rolling(window=window, min_periods=1).sum()
+        )
+        daily_window[f"rolling_{window}d_amount_sum"] = daily_window.groupby("CUSTOMER_NUMBER")["daily_amount_sum"].transform(
+            lambda s: s.rolling(window=window, min_periods=1).sum()
+        )
+    daily_window["rolling_30d_external_transfer_count"] = daily_window.groupby("CUSTOMER_NUMBER")["daily_external_transfer_count"].transform(
+        lambda s: s.rolling(window=30, min_periods=1).sum()
+    )
+    daily_window["rolling_90d_amount_avg"] = _safe_divide(daily_window["rolling_90d_amount_sum"], daily_window["rolling_90d_txn_count"], default=0)
+    rolling_cols = [
+        "CUSTOMER_NUMBER",
+        "TRANS_DATE",
+        "rolling_30d_txn_count",
+        "rolling_60d_txn_count",
+        "rolling_90d_txn_count",
+        "rolling_30d_amount_sum",
+        "rolling_60d_amount_sum",
+        "rolling_90d_amount_sum",
+        "rolling_30d_external_transfer_count",
+        "rolling_90d_amount_avg",
+    ]
+    trx = trx.merge(daily_window[rolling_cols], on=["CUSTOMER_NUMBER", "TRANS_DATE"], how="left")
 
     device_customer_count = trx.groupby("Device_ID_Hash")["CUSTOMER_NUMBER"].nunique().rename("device_customer_count")
     ip_customer_count = trx.groupby("IP_Address_Proxy")["CUSTOMER_NUMBER"].nunique().rename("ip_customer_count")
@@ -475,10 +529,11 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
     high_amount = (
         result["amount_zscore_customer"].ge(thresholds["high_amount_zscore"])
         | result["amount_vs_customer_p95"].ge(thresholds["high_amount_vs_p95"])
+        | result["amount_vs_iqr_upper"].ge(1.0)
         | result["amount_global_percentile"].ge(thresholds["top_global_amount_percentile"])
     )
-    daily_burst = result["daily_txn_count_ratio"].ge(thresholds["daily_burst_ratio"])
-    daily_amount_burst = result["daily_amount_ratio"].ge(thresholds["daily_amount_burst_ratio"])
+    daily_burst = result["daily_txn_count_ratio"].ge(thresholds["daily_burst_ratio"]) | result["daily_count_vs_iqr_upper"].ge(1.0)
+    daily_amount_burst = result["daily_amount_ratio"].ge(thresholds["daily_amount_burst_ratio"]) | result["daily_amount_vs_iqr_upper"].ge(1.0)
     cashout_vs_balance = result["amount_vs_ca_balance"].ge(thresholds["cashout_vs_balance_ratio"]) & result["is_cashout_flow"].eq(1)
     shared_device = result["device_customer_count"].ge(thresholds["shared_device_customer_count"])
     shared_ip = result["ip_customer_count"].ge(thresholds["shared_ip_customer_count"])
@@ -554,8 +609,11 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
         ("Người thụ hưởng mới trong giao dịch chuyển tiền", result["is_new_beneficiary_after_history"].eq(1)),
         ("Giao dịch ngoài khung giờ thông thường hoặc có hoạt động đêm", nighttime_access),
         ("Số tiền cao bất thường so với baseline của khách hàng", high_amount),
+        ("Số tiền vượt ngưỡng IQR cá nhân hóa Q3 + 1.5*IQR", result["amount_vs_iqr_upper"].ge(1.0)),
         ("Tần suất giao dịch trong ngày tăng đột biến", daily_burst),
+        ("Tần suất giao dịch vượt ngưỡng IQR cá nhân hóa", result["daily_count_vs_iqr_upper"].ge(1.0)),
         ("Tổng dòng tiền ngày đó tăng mạnh so với baseline", daily_amount_burst),
+        ("Tổng dòng tiền ngày vượt ngưỡng IQR cá nhân hóa", result["daily_amount_vs_iqr_upper"].ge(1.0)),
         ("Dòng tiền ra lớn so với số dư CASA", cashout_vs_balance),
         ("Thiết bị dùng chung bởi nhiều khách hàng", shared_device),
         ("IP dùng chung bởi nhiều khách hàng", shared_ip),
@@ -710,6 +768,13 @@ def build_surrogate_importance(df: pd.DataFrame, config: PipelineConfig) -> pd.S
 
 
 def recommended_action(row: pd.Series) -> str:
+    hybrid = row.get("hybrid_decision", "")
+    if hybrid == "Rule+ML alert: Block/Hold":
+        return "BLOCK/HOLD: cả rule nghiệp vụ và ML cùng báo rủi ro; tạm giữ giao dịch, xác minh khách hàng và review thủ công."
+    if hybrid == "Rule-only alert: Step-up/eKYC":
+        return "STEP-UP/eKYC: rule nghiệp vụ báo rủi ro nhưng ML chưa đủ tự tin; yêu cầu xác thực tăng cường để giảm false positive."
+    if hybrid == "ML-only alert: Special watchlist":
+        return "SPECIAL WATCHLIST: ML phát hiện pattern lạ ngoài rule hiện tại; cho vào hàng đợi theo dõi/review để bắt zero-day fraud."
     band = row["risk_band"]
     branch = row["primary_cause_branch"]
     if band == "Critical" and "AML" in branch:
@@ -731,13 +796,29 @@ def finalise_explanations(df: pd.DataFrame, feature_importance: pd.Series) -> pd
     high_model = result["model_fraud_probability"].ge(result["model_fraud_probability"].quantile(0.975))
     result["top_reasons"] = result["rule_reasons"]
     result.loc[high_model, "top_reasons"] = result.loc[high_model, "top_reasons"] + "; " + model_hint
+    result["rule_alert"] = result["rule_fraud_label"].eq(1).astype(int)
+    result["ml_alert"] = result["risk_band"].isin(["High", "Critical"]).astype(int)
+    result["hybrid_decision"] = np.select(
+        [
+            result["rule_alert"].eq(1) & result["ml_alert"].eq(1),
+            result["rule_alert"].eq(1) & result["ml_alert"].eq(0),
+            result["rule_alert"].eq(0) & result["ml_alert"].eq(1),
+        ],
+        [
+            "Rule+ML alert: Block/Hold",
+            "Rule-only alert: Step-up/eKYC",
+            "ML-only alert: Special watchlist",
+        ],
+        default="No alert: Allow",
+    )
     result["prevention_action"] = np.select(
         [
-            result["risk_band"].eq("Critical"),
-            result["risk_band"].eq("High"),
+            result["rule_alert"].eq(1) & result["ml_alert"].eq(1),
+            result["rule_alert"].eq(1) & result["ml_alert"].eq(0),
+            result["rule_alert"].eq(0) & result["ml_alert"].eq(1),
             result["risk_band"].eq("Medium"),
         ],
-        ["Block/Hold", "Step-up Authentication", "Enhanced Monitoring"],
+        ["Block/Hold", "Step-up Authentication", "Enhanced Monitoring", "Enhanced Monitoring"],
         default="Allow",
     )
     result["is_prevented_or_challenged"] = result["prevention_action"].isin(["Block/Hold", "Step-up Authentication"]).astype(int)
@@ -780,6 +861,112 @@ def build_customer_summary(scores: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def build_customer_360(scores: pd.DataFrame) -> pd.DataFrame:
+    latest_cols = [
+        "CUSTOMER_NUMBER",
+        "TRANS_DATE",
+        "rolling_30d_txn_count",
+        "rolling_60d_txn_count",
+        "rolling_90d_txn_count",
+        "rolling_30d_amount_sum",
+        "rolling_60d_amount_sum",
+        "rolling_90d_amount_sum",
+        "rolling_30d_external_transfer_count",
+        "rolling_90d_amount_avg",
+        "AVG_CA_BALANCE",
+        "AVG_TD_BALANCE",
+        "COUNT_OF_LOAN",
+        "COUNT_CREDITCARD",
+        "COUNT_DEBITCARD",
+        "max_overdue_days",
+        "credit_risk_group_num",
+        "credit_utilization",
+    ]
+    latest = (
+        scores.sort_values(["CUSTOMER_NUMBER", "TRANS_DATE", "transaction_row_id"])
+        .groupby("CUSTOMER_NUMBER", as_index=False)
+        .tail(1)[latest_cols]
+        .rename(columns={"TRANS_DATE": "baseline_as_of_date"})
+    )
+    beneficiary_masked = scores["Beneficiary_CUSTOMER_NUMBER"].where(scores["beneficiary_is_customer"].eq(1))
+    temp = scores.assign(customer_beneficiary_for_profile=beneficiary_masked)
+    profile = (
+        temp.groupby("CUSTOMER_NUMBER", as_index=False)
+        .agg(
+            transactional_txn_count=("transaction_row_id", "size"),
+            transactional_avg_amount=("TRANS_AMOUNT", "mean"),
+            transactional_p95_amount=("TRANS_AMOUNT", lambda s: float(s.quantile(0.95))),
+            transactional_iqr_upper_amount=("customer_amount_iqr_upper", "max"),
+            transactional_golden_hour=("TRANS_HOUR", lambda s: int(s.mode().iloc[0]) if not s.mode().empty else -1),
+            transactional_avg_daily_count=("daily_txn_count", "mean"),
+            transactional_iqr_upper_daily_count=("customer_daily_count_iqr_upper", "max"),
+            transactional_iqr_upper_daily_amount=("customer_daily_amount_iqr_upper", "max"),
+            financial_avg_ca_balance=("AVG_CA_BALANCE", "mean"),
+            financial_avg_td_balance=("AVG_TD_BALANCE", "mean"),
+            financial_max_credit_utilization=("credit_utilization", "max"),
+            financial_max_overdue_days=("max_overdue_days", "max"),
+            financial_worst_credit_risk_group=("credit_risk_group_num", "max"),
+            environmental_trusted_device_count=("Device_ID_Hash", "nunique"),
+            environmental_trusted_ip_count=("IP_Address_Proxy", "nunique"),
+            environmental_known_customer_beneficiary_count=("customer_beneficiary_for_profile", "nunique"),
+            environmental_max_device_customer_count=("device_customer_count", "max"),
+            environmental_max_ip_customer_count=("ip_customer_count", "max"),
+            behavioral_avg_daily_activity_count=("daily_activity_count", "mean"),
+            behavioral_total_night_activity=("night_activity_count", "sum"),
+            behavioral_total_late_stage_activity=("late_stage_activity_count", "sum"),
+            behavioral_total_auth_activity=("auth_or_account_activity_count", "sum"),
+            behavioral_uses_sms=("uses_sms", "max"),
+            behavioral_uses_strong_auth=("uses_strong_auth", "max"),
+        )
+    )
+    profile = profile.merge(latest, on="CUSTOMER_NUMBER", how="left")
+    ordered_cols = [
+        "CUSTOMER_NUMBER",
+        "baseline_as_of_date",
+        "transactional_txn_count",
+        "transactional_avg_amount",
+        "transactional_p95_amount",
+        "transactional_iqr_upper_amount",
+        "transactional_golden_hour",
+        "transactional_avg_daily_count",
+        "transactional_iqr_upper_daily_count",
+        "transactional_iqr_upper_daily_amount",
+        "rolling_30d_txn_count",
+        "rolling_60d_txn_count",
+        "rolling_90d_txn_count",
+        "rolling_30d_amount_sum",
+        "rolling_60d_amount_sum",
+        "rolling_90d_amount_sum",
+        "rolling_30d_external_transfer_count",
+        "rolling_90d_amount_avg",
+        "financial_avg_ca_balance",
+        "financial_avg_td_balance",
+        "financial_max_credit_utilization",
+        "financial_max_overdue_days",
+        "financial_worst_credit_risk_group",
+        "AVG_CA_BALANCE",
+        "AVG_TD_BALANCE",
+        "COUNT_OF_LOAN",
+        "COUNT_CREDITCARD",
+        "COUNT_DEBITCARD",
+        "max_overdue_days",
+        "credit_risk_group_num",
+        "credit_utilization",
+        "environmental_trusted_device_count",
+        "environmental_trusted_ip_count",
+        "environmental_known_customer_beneficiary_count",
+        "environmental_max_device_customer_count",
+        "environmental_max_ip_customer_count",
+        "behavioral_avg_daily_activity_count",
+        "behavioral_total_night_activity",
+        "behavioral_total_late_stage_activity",
+        "behavioral_total_auth_activity",
+        "behavioral_uses_sms",
+        "behavioral_uses_strong_auth",
+    ]
+    return profile[ordered_cols].sort_values("CUSTOMER_NUMBER")
+
+
 def build_root_cause_summary(scores: pd.DataFrame) -> pd.DataFrame:
     return (
         scores.groupby("primary_cause_branch", as_index=False)
@@ -807,6 +994,10 @@ def build_prevention_impact(scores: pd.DataFrame) -> dict[str, Any]:
         "step_up_transactions": int(step_up.sum()),
         "enhanced_monitoring_transactions": int(scores["prevention_action"].eq("Enhanced Monitoring").sum()),
         "allow_transactions": int(scores["prevention_action"].eq("Allow").sum()),
+        "rule_and_ml_alert_transactions": int(scores["hybrid_decision"].eq("Rule+ML alert: Block/Hold").sum()),
+        "rule_only_alert_transactions": int(scores["hybrid_decision"].eq("Rule-only alert: Step-up/eKYC").sum()),
+        "ml_only_alert_transactions": int(scores["hybrid_decision"].eq("ML-only alert: Special watchlist").sum()),
+        "no_alert_transactions": int(scores["hybrid_decision"].eq("No alert: Allow").sum()),
         "protected_amount_block_or_step_up": float(scores.loc[challenged, "TRANS_AMOUNT"].sum()),
         "blocked_amount": float(scores.loc[blocked, "TRANS_AMOUNT"].sum()),
         "step_up_amount": float(scores.loc[step_up, "TRANS_AMOUNT"].sum()),
@@ -849,7 +1040,13 @@ def build_time_stability(scores: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     return monthly, quarterly
 
 
-def write_figures(scores: pd.DataFrame, root_cause: pd.DataFrame, monthly_stability: pd.DataFrame, figures_dir: Path) -> None:
+def write_figures(
+    scores: pd.DataFrame,
+    customer_360: pd.DataFrame,
+    root_cause: pd.DataFrame,
+    monthly_stability: pd.DataFrame,
+    figures_dir: Path,
+) -> None:
     figures_dir.mkdir(parents=True, exist_ok=True)
     sns.set_theme(style="whitegrid")
 
@@ -926,10 +1123,52 @@ def write_figures(scores: pd.DataFrame, root_cause: pd.DataFrame, monthly_stabil
     plt.savefig(figures_dir / "monthly_stability_backtest.png", dpi=180)
     plt.close()
 
+    hybrid = scores["hybrid_decision"].value_counts().reset_index()
+    hybrid.columns = ["hybrid_decision", "count"]
+    plt.figure(figsize=(10, 5))
+    sns.barplot(data=hybrid, y="hybrid_decision", x="count", color="#2F6B8F")
+    plt.title("Hybrid Rule + ML decision matrix")
+    plt.xlabel("Transaction count")
+    plt.ylabel("")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "hybrid_decision_matrix.png", dpi=180)
+    plt.close()
+
+    credit_group = customer_360["financial_worst_credit_risk_group"].value_counts().sort_index().reset_index()
+    credit_group.columns = ["credit_risk_group", "customer_count"]
+    plt.figure(figsize=(7, 5))
+    sns.barplot(data=credit_group, x="credit_risk_group", y="customer_count", color="#88A868")
+    plt.title("Customer 360 credit-risk group distribution")
+    plt.xlabel("Worst credit-risk group")
+    plt.ylabel("Customer count")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "customer_360_credit_risk_group.png", dpi=180)
+    plt.close()
+
+    rolling = pd.DataFrame(
+        {
+            "window": ["30d", "60d", "90d"],
+            "avg_txn_count": [
+                customer_360["rolling_30d_txn_count"].mean(),
+                customer_360["rolling_60d_txn_count"].mean(),
+                customer_360["rolling_90d_txn_count"].mean(),
+            ],
+        }
+    )
+    plt.figure(figsize=(7, 5))
+    sns.barplot(data=rolling, x="window", y="avg_txn_count", color="#C46243")
+    plt.title("Rolling-window transactional baseline")
+    plt.xlabel("Rolling window")
+    plt.ylabel("Average transaction count")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "rolling_window_baseline.png", dpi=180)
+    plt.close()
+
 
 def build_metrics(
     scores: pd.DataFrame,
     customer_summary: pd.DataFrame,
+    customer_360: pd.DataFrame,
     root_cause: pd.DataFrame,
     schema_report: dict[str, Any],
     thresholds: dict[str, float],
@@ -954,6 +1193,7 @@ def build_metrics(
         "row_counts": {
             "transactions_scored": int(len(scores)),
             "customers_scored": int(customer_summary["CUSTOMER_NUMBER"].nunique()),
+            "customer_360_profiles": int(customer_360["CUSTOMER_NUMBER"].nunique()),
             "activity_customer_days": int(schema_report.get("activity_daily_aggregated", {}).get("rows", 0)),
         },
         "date_range": {
@@ -962,6 +1202,12 @@ def build_metrics(
         },
         "schema_report": schema_report,
         "rule_thresholds": thresholds,
+        "baseline_engineering": {
+            "customer_360_output": "outputs/customer_360_baseline.csv",
+            "rolling_windows_days": [30, 60, 90],
+            "iqr_formula": "Q3 + 1.5 * IQR",
+            "baseline_groups": ["Transactional", "Financial", "Environmental", "Behavioral"],
+        },
         "supervised_model_metrics": supervised_model_metrics,
         "prevention_impact": prevention_impact,
         "activity_no_late_stage_threshold_p90": int(activity_no_threshold),
@@ -1020,13 +1266,15 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 ## 4. Framework kỹ thuật
 
 1. Chuẩn hóa schema theo data dictionary, đồng thời xử lý khác biệt tên cột trong file thật như `TRANS_LV1`/`TRXN_LV1` và `LIMIT_AMT_CREDIT`/`LIMIT_AMT`.
-2. Tạo baseline hành vi theo từng khách hàng: số tiền trung bình, P95, tần suất ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
-3. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
-4. Chấm điểm rule-based theo ba nhánh nguyên nhân.
-5. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
-6. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
-7. Chia band và hành động vận hành: Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold.
-8. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
+2. Tạo Customer 360 baseline: mỗi khách hàng một dòng với 4 nhóm Transactional, Financial, Environmental, Behavioral.
+3. Tính rolling window 30/60/90 ngày để phản ánh thói quen hiện tại thay vì dùng cứng toàn bộ lịch sử.
+4. Tạo threshold cá nhân hóa bằng P95, z-score và IQR (`Q3 + 1.5 * IQR`) cho số tiền, tần suất và tổng dòng tiền ngày.
+5. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
+6. Chấm điểm rule-based theo ba nhánh nguyên nhân.
+7. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
+8. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
+9. Dùng hybrid Rule + ML matrix để quyết định hành động: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Special Watchlist, No-alert = Allow.
+10. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
 
 Xử lý nghiệp vụ bổ sung:
 
@@ -1034,6 +1282,8 @@ Xử lý nghiệp vụ bổ sung:
 - Các merchant như ví điện tử, QR, telco, utility thường không có customer beneficiary cụ thể; nhóm này không bị coi là missing data mặc định.
 - Nếu merchant nội bộ/tín dụng không có customer beneficiary nhưng đi kèm số tiền, giờ hoặc activity bất thường, pipeline đưa vào reason code để kiểm tra thêm.
 - Overdue lending/credit được gom thành nhóm rủi ro tín dụng 1-5 theo số ngày quá hạn để bổ sung bối cảnh khách hàng tốt/xấu.
+- `outputs/customer_360_baseline.csv` là master data để giải thích baseline 360 độ và làm nền cho dashboard/report.
+- `outputs/figures/hybrid_decision_matrix.png`, `rolling_window_baseline.png` và `customer_360_credit_risk_group.png` minh họa rõ phần vận hành, rolling baseline và bối cảnh tín dụng.
 
 ## 5. Kết quả chính
 
@@ -1042,6 +1292,9 @@ Xử lý nghiệp vụ bổ sung:
 - Khách hàng có High/Critical transaction: {metrics["review_queue"]["customers_with_high_or_critical"]:,}.
 - Prevention coverage against rule labels: {metrics["prevention_impact"]["prevention_coverage_against_rule_labels"]:.2%}.
 - Protected amount by Block/Step-up actions: {metrics["prevention_impact"]["protected_amount_block_or_step_up"]:,.0f}.
+- Rule+ML Block/Hold transactions: {metrics["prevention_impact"]["rule_and_ml_alert_transactions"]:,}.
+- Rule-only Step-up/eKYC transactions: {metrics["prevention_impact"]["rule_only_alert_transactions"]:,}.
+- ML-only Special Watchlist transactions: {metrics["prevention_impact"]["ml_only_alert_transactions"]:,}.
 
 Root-cause summary:
 
@@ -1099,6 +1352,7 @@ Framework của dự án bám đúng tinh thần này: risk-based, layered contr
 def write_outputs(
     scores: pd.DataFrame,
     customer_summary: pd.DataFrame,
+    customer_360: pd.DataFrame,
     root_cause: pd.DataFrame,
     monthly_stability: pd.DataFrame,
     quarterly_stability: pd.DataFrame,
@@ -1122,10 +1376,13 @@ def write_outputs(
         "Beneficiary_CUSTOMER_NUMBER",
         "rule_score_0_100",
         "rule_fraud_label",
+        "rule_alert",
         "weak_label_confidence",
         "model_fraud_probability",
+        "ml_alert",
         "risk_score_0_100",
         "risk_band",
+        "hybrid_decision",
         "primary_cause_branch",
         "top_reasons",
         "prevention_action",
@@ -1134,6 +1391,7 @@ def write_outputs(
     ]
     scores.sort_values("risk_score_0_100", ascending=False)[output_cols].to_csv(config.output_dir / "transaction_risk_scores.csv", index=False)
     customer_summary.to_csv(config.output_dir / "customer_risk_summary.csv", index=False)
+    customer_360.to_csv(config.output_dir / "customer_360_baseline.csv", index=False)
     root_cause.to_csv(config.output_dir / "root_cause_summary.csv", index=False)
     monthly_stability.to_csv(config.output_dir / "monthly_stability.csv", index=False)
     quarterly_stability.to_csv(config.output_dir / "quarterly_stability.csv", index=False)
@@ -1172,13 +1430,15 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
     feature_importance = build_surrogate_importance(model_scored, config)
     final_scores = finalise_explanations(model_scored, feature_importance)
     customer_summary = build_customer_summary(final_scores)
+    customer_360 = build_customer_360(final_scores)
     root_cause = build_root_cause_summary(final_scores)
     prevention_impact = build_prevention_impact(final_scores)
     monthly_stability, quarterly_stability = build_time_stability(final_scores)
-    write_figures(final_scores, root_cause, monthly_stability, config.figures_dir)
+    write_figures(final_scores, customer_360, root_cause, monthly_stability, config.figures_dir)
     metrics = build_metrics(
         final_scores,
         customer_summary,
+        customer_360,
         root_cause,
         schema_report,
         thresholds,
@@ -1191,7 +1451,7 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
         config,
     )
     write_report_outline(metrics, root_cause, config.report_dir)
-    write_outputs(final_scores, customer_summary, root_cause, monthly_stability, quarterly_stability, metrics, config)
+    write_outputs(final_scores, customer_summary, customer_360, root_cause, monthly_stability, quarterly_stability, metrics, config)
     return metrics
 
 

@@ -17,5 +17,6 @@ G_Contest 26'_3rd round assignment.docx
 data/
 outputs/transaction_risk_scores.csv
 outputs/customer_risk_summary.csv
+outputs/customer_360_baseline.csv
 outputs/top_review_queue.csv
 outputs/xai_feature_sample.csv

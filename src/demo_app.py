@@ -13,15 +13,17 @@ OUTPUT_DIR = Path("outputs")
 
 
 @st.cache_data(show_spinner=False)
-def load_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+def load_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     top_queue = pd.read_csv(OUTPUT_DIR / "top_review_queue.csv")
     customers = pd.read_csv(OUTPUT_DIR / "customer_risk_summary.csv")
+    customer_360 = pd.read_csv(OUTPUT_DIR / "customer_360_baseline.csv")
     root_cause = pd.read_csv(OUTPUT_DIR / "root_cause_summary.csv")
     metrics = json.loads((OUTPUT_DIR / "model_metrics.json").read_text(encoding="utf-8"))
     top_queue["transaction_row_id"] = top_queue["transaction_row_id"].astype(str)
     top_queue["CUSTOMER_NUMBER"] = top_queue["CUSTOMER_NUMBER"].astype(str)
     customers["CUSTOMER_NUMBER"] = customers["CUSTOMER_NUMBER"].astype(str)
-    return top_queue, customers, root_cause, metrics
+    customer_360["CUSTOMER_NUMBER"] = customer_360["CUSTOMER_NUMBER"].astype(str)
+    return top_queue, customers, customer_360, root_cause, metrics
 
 
 def advisor_text(row: pd.Series) -> str:
@@ -70,7 +72,7 @@ def answer_query(query: str, top_queue: pd.DataFrame, customers: pd.DataFrame) -
 
 def main() -> None:
     st.set_page_config(page_title="G'Contest Fraud Risk Advisor", layout="wide")
-    top_queue, customers, root_cause, metrics = load_demo_data()
+    top_queue, customers, customer_360, root_cause, metrics = load_demo_data()
 
     st.title("Fraud Risk Advisor")
     st.caption("Real-data demo for G'Contest 2026. Rule-derived weak labels train a supervised fraud prevention model.")
@@ -81,7 +83,9 @@ def main() -> None:
     m3.metric("Critical", f"{metrics['review_queue']['critical_transactions']:,}")
     m4.metric("Prevention coverage", f"{metrics['prevention_impact']['prevention_coverage_against_rule_labels']:.1%}")
 
-    tab_overview, tab_prevention, tab_case, tab_chat, tab_xai = st.tabs(["Overview", "Prevention impact", "Case review", "Advisor chat", "xAI"])
+    tab_overview, tab_customer360, tab_prevention, tab_case, tab_chat, tab_xai = st.tabs(
+        ["Overview", "Customer 360", "Prevention impact", "Case review", "Advisor chat", "xAI"]
+    )
 
     with tab_overview:
         left, right = st.columns([1.2, 1])
@@ -110,6 +114,22 @@ def main() -> None:
             st.plotly_chart(fig, use_container_width=True)
         st.dataframe(top_queue.head(30), use_container_width=True, hide_index=True)
 
+    with tab_customer360:
+        st.subheader("Customer 360 baseline")
+        st.caption("Một khách hàng một dòng: Transactional, Financial, Environmental và Behavioral baseline với rolling window 30/60/90 ngày.")
+        selected_customer = st.selectbox("CUSTOMER_NUMBER", customer_360["CUSTOMER_NUMBER"].head(5000), index=0)
+        profile = customer_360.loc[customer_360["CUSTOMER_NUMBER"].eq(str(selected_customer))]
+        if not profile.empty:
+            row = profile.iloc[0]
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("30d txns", f"{float(row['rolling_30d_txn_count']):,.0f}")
+            c2.metric("90d avg amount", f"{float(row['rolling_90d_amount_avg']):,.0f}")
+            c3.metric("Trusted devices", f"{int(row['environmental_trusted_device_count']):,}")
+            c4.metric("Worst credit group", f"{int(row['financial_worst_credit_risk_group'])}")
+            st.dataframe(profile, use_container_width=True, hide_index=True)
+        st.write("**Sample profiles**")
+        st.dataframe(customer_360.head(50), use_container_width=True, hide_index=True)
+
     with tab_prevention:
         st.subheader("Prevention impact")
         impact = metrics["prevention_impact"]
@@ -137,6 +157,10 @@ def main() -> None:
             color_discrete_sequence=["#8E2D2D", "#C46243", "#E0A72E", "#88A868"],
         )
         st.plotly_chart(fig, use_container_width=True)
+        st.write("**Hybrid decision matrix**")
+        hybrid_counts = top_queue["hybrid_decision"].value_counts().reset_index()
+        hybrid_counts.columns = ["hybrid_decision", "count"]
+        st.dataframe(hybrid_counts, use_container_width=True, hide_index=True)
         st.caption("Coverage is measured against rule-derived weak labels, not confirmed fraud outcomes.")
 
     with tab_case:

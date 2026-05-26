@@ -13,8 +13,12 @@ The current version no longer uses synthetic data or confirmed-fraud claims. The
   - AML network / mule-account pattern.
 - Uses `ACTIVITY_NO` as an ordered digital journey signal, where larger values represent later actions.
 - Scores every transaction with:
+  - a Customer 360 baseline profile with transactional, financial, environmental, and behavioral features,
+  - rolling-window features over 30/60/90 days,
+  - personalized IQR thresholds using `Q3 + 1.5 * IQR`,
   - rule-based branch scores for weak-label creation,
   - a supervised prevention model trained from those weak labels,
+  - a hybrid Rule + ML decision matrix,
   - prevention actions: Allow, Enhanced Monitoring, Step-up Authentication, Block/Hold.
 - Produces transaction-level and customer-level prevention queues.
 - Outputs an xAI-style explanation: `top_reasons` and `recommended_action`.
@@ -56,6 +60,7 @@ Main outputs:
 
 - `outputs/transaction_risk_scores.csv`: full transaction review queue, local only.
 - `outputs/customer_risk_summary.csv`: customer-level risk summary, local only.
+- `outputs/customer_360_baseline.csv`: Customer 360 baseline master table, local only.
 - `outputs/top_review_queue.csv`: top 1,000 transactions for demo, local only.
 - `outputs/root_cause_summary.csv`: aggregate cause summary.
 - `outputs/model_metrics.json`: schema checks, weak-label model metrics, and prevention-impact metrics.
@@ -84,7 +89,7 @@ Run the Streamlit live demo:
 streamlit run src/demo_app.py
 ```
 
-The Streamlit app includes an overview dashboard, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
+The Streamlit app includes an overview dashboard, Customer 360 tab, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
 
 ## xAI And Stability
 

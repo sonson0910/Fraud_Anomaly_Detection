@@ -42,17 +42,17 @@ Xử lý nghiệp vụ bổ sung:
 
 ## 5. Kết quả chính
 
-- High/Critical transactions: 179,979.
-- Critical transactions: 20,242.
-- Khách hàng có High/Critical transaction: 24,888.
-- Prevention coverage against rule labels: 90.30%.
-- Protected amount by Block/Step-up actions: 3,536,070,412,076.
+- High/Critical transactions: 402,266.
+- Critical transactions: 32,374.
+- Khách hàng có High/Critical transaction: 38,756.
+- Prevention coverage against rule labels: 100.00%.
+- Protected amount by Block/Step-up actions: 6,935,381,708,289.
 
 Root-cause summary:
 
-- Account takeover / identity compromise: 161,830 High/Critical giao dịch, risk trung bình 53.1/100.
-- Unauthorized transfer / capital outflow: 16,765 High/Critical giao dịch, risk trung bình 67.6/100.
-- AML network / mule-account pattern: 1,384 High/Critical giao dịch, risk trung bình 34.7/100.
+- Account takeover / identity compromise: 272,657 High/Critical giao dịch, risk trung bình 52.6/100.
+- Unauthorized transfer / capital outflow: 127,772 High/Critical giao dịch, risk trung bình 83.9/100.
+- AML network / mule-account pattern: 1,837 High/Critical giao dịch, risk trung bình 48.2/100.
 
 Monthly stability backtest:
 

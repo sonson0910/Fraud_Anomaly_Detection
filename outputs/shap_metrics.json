@@ -3,48 +3,48 @@
   "target": "Supervised prevention risk_score_0_100 learned from rule-derived weak labels",
   "training_rows": 60000,
   "explained_rows": 3000,
-  "surrogate_mae": 1.1960729181287428,
-  "surrogate_correlation": 0.9979248153776544,
+  "surrogate_mae": 1.1917626926084854,
+  "surrogate_correlation": 0.9980971643072131,
   "top_features": [
     {
       "feature": "is_external_transfer",
-      "mean_abs_shap": 23.481571151635837
+      "mean_abs_shap": 21.79362633733767
     },
     {
-      "feature": "night_activity_count",
-      "mean_abs_shap": 10.651759657408086
+      "feature": "amount_vs_iqr_upper",
+      "mean_abs_shap": 7.2077371247783075
     },
     {
       "feature": "is_new_beneficiary_after_history",
-      "mean_abs_shap": 8.470737998201642
+      "mean_abs_shap": 6.752586684811971
+    },
+    {
+      "feature": "night_activity_count",
+      "mean_abs_shap": 4.779447719194387
+    },
+    {
+      "feature": "daily_count_vs_iqr_upper",
+      "mean_abs_shap": 1.0289609212519863
     },
     {
       "feature": "uses_sms",
-      "mean_abs_shap": 1.6098339702508078
+      "mean_abs_shap": 1.0136060717300066
     },
     {
-      "feature": "daily_external_transfer_count",
-      "mean_abs_shap": 1.092039168892216
-    },
-    {
-      "feature": "is_new_ip_after_history",
-      "mean_abs_shap": 0.6718143079051894
+      "feature": "daily_amount_ratio",
+      "mean_abs_shap": 0.774029733598606
     },
     {
       "feature": "amount_zscore_customer",
-      "mean_abs_shap": 0.49272803814529803
+      "mean_abs_shap": 0.7041350283704638
     },
     {
-      "feature": "amount_vs_customer_p95",
-      "mean_abs_shap": 0.4877875652805219
+      "feature": "daily_amount_vs_iqr_upper",
+      "mean_abs_shap": 0.5962528194133293
     },
     {
-      "feature": "daily_activity_count",
-      "mean_abs_shap": 0.4478542761111467
-    },
-    {
-      "feature": "max_activity_no_same_day",
-      "mean_abs_shap": 0.38884065427897396
+      "feature": "daily_external_transfer_count",
+      "mean_abs_shap": 0.5886712372772976
     }
   ],
   "note": "This explains the supervised prevention model trained on weak labels, not confirmed fraud labels."

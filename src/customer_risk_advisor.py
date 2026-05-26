@@ -20,6 +20,8 @@ def explain_transaction(row: pd.Series) -> str:
 
 Customer: {row['CUSTOMER_NUMBER']}
 Risk band: {row['risk_band']} ({float(row['risk_score_0_100']):.2f}/100)
+Hybrid decision: {row.get('hybrid_decision', 'N/A')}
+Prevention action: {row.get('prevention_action', 'N/A')}
 Primary cause branch: {row.get('primary_cause_branch', 'N/A')}
 Transaction: {row['TRANS_LV1']} / {row['TRANS_LV2']} at hour {int(row['TRANS_HOUR'])} with amount {float(row['TRANS_AMOUNT']):,.0f}
 

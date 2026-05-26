@@ -139,13 +139,13 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     )
     c.showPage()
 
-    slide_header(c, "Framework", "Data dictionary -> behavioral baseline -> root-cause rules -> weak labels -> prevention model")
+    slide_header(c, "Framework", "Data dictionary -> Customer 360 baseline -> root-cause rules -> weak labels -> prevention model")
     steps = [
         ("1. Data", "Customer, Transaction, Activity, Deposit, Lending, Card"),
-        ("2. Baseline", "Customer amount P95, daily frequency, known device/IP/beneficiary"),
-        ("3. Root causes", "ATO, unauthorized transfer, AML network scores"),
-        ("4. Model", "Supervised classifier learns from rule-derived weak labels"),
-        ("5. xAI + Action", "Reason codes, SHAP surrogate, Allow/Monitor/Step-up/Block"),
+        ("2. Customer 360", "Transactional, Financial, Environmental, Behavioral baseline"),
+        ("3. Thresholds", "Rolling 30/60/90 days plus personalized IQR = Q3 + 1.5*IQR"),
+        ("4. Model", "Rules create weak labels; supervised model learns prevention risk"),
+        ("5. Hybrid Action", "Rule+ML matrix -> Allow / Watchlist / Step-up / Block"),
     ]
     x = 0.65 * inch
     for idx, (title, body) in enumerate(steps):
@@ -175,9 +175,43 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     )
     c.showPage()
 
+    slide_header(c, "Customer 360 Baseline", "One customer, one current financial-behavioral profile")
+    add_image(c, figures_dir / "rolling_window_baseline.png", 0.75 * inch, 1.05 * inch, 5.6 * inch, 4.4 * inch)
+    add_image(c, figures_dir / "customer_360_credit_risk_group.png", 6.75 * inch, 1.05 * inch, 5.6 * inch, 4.4 * inch)
+    draw_bullets(
+        c,
+        [
+            "Transactional: amount average/P95/IQR, golden hour, rolling 30/60/90-day activity.",
+            "Financial: CASA/TD balance, card utilization, overdue and credit-risk group.",
+            "Environmental and behavioral: trusted device/IP, known beneficiary, app activity, night/late-stage activity.",
+        ],
+        0.85 * inch,
+        0.85 * inch,
+        13,
+        100,
+    )
+    c.showPage()
+
     slide_header(c, "Key Insights", "Top-risk queue is explainable by root-cause branch")
     add_image(c, figures_dir / "root_cause_high_critical.png", 0.55 * inch, 1.1 * inch, 5.9 * inch, 4.2 * inch)
     add_image(c, figures_dir / "risk_band_counts.png", 6.75 * inch, 1.1 * inch, 5.7 * inch, 4.2 * inch)
+    c.showPage()
+
+    slide_header(c, "Hybrid Decision Matrix", "Rule engine and ML confidence are converted into bank actions")
+    add_image(c, figures_dir / "hybrid_decision_matrix.png", 0.8 * inch, 1.0 * inch, 11.7 * inch, 4.8 * inch)
+    draw_bullets(
+        c,
+        [
+            "Rule+ML alert: Block/Hold.",
+            "Rule-only alert: Step-up/eKYC to reduce false positives.",
+            "ML-only alert: Special watchlist for patterns not yet covered by rules.",
+            "No alert: Allow while baseline continues to update.",
+        ],
+        0.9 * inch,
+        1.0 * inch,
+        13,
+        100,
+    )
     c.showPage()
 
     slide_header(c, "Temporal Stability", "2019 monthly/quarterly backtest for review-rate stability")
@@ -269,9 +303,10 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
             "Framework",
             "Data -> baseline -> rules -> weak labels -> supervised prevention model -> SHAP/xAI.",
             [
-                "Behavioral baseline by customer",
+                "Customer 360 baseline by Transactional, Financial, Environmental and Behavioral groups",
+                "Rolling 30/60/90-day features plus IQR thresholds",
                 "Rule-derived weak labels train the supervised prevention model",
-                "Human-readable reason codes and recommended actions",
+                "Hybrid matrix creates human-readable recommended actions",
             ],
         ),
         (
@@ -306,6 +341,8 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
                 p.level = 0
     for title, image in [
         ("Root-Cause Review Queue", "root_cause_high_critical.png"),
+        ("Customer 360 Rolling Baseline", "rolling_window_baseline.png"),
+        ("Hybrid Decision Matrix", "hybrid_decision_matrix.png"),
         ("Temporal Stability", "monthly_stability_backtest.png"),
         ("SHAP Explainability", "shap_feature_importance.png"),
     ]:

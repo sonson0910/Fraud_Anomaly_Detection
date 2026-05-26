@@ -32,6 +32,7 @@ def test_real_input_files_are_present() -> None:
 def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     risk_path = OUTPUT_DIR / "transaction_risk_scores.csv"
     customer_path = OUTPUT_DIR / "customer_risk_summary.csv"
+    customer_360_path = OUTPUT_DIR / "customer_360_baseline.csv"
     metrics_path = OUTPUT_DIR / "model_metrics.json"
     root_cause_path = OUTPUT_DIR / "root_cause_summary.csv"
     top_queue_path = OUTPUT_DIR / "top_review_queue.csv"
@@ -39,7 +40,7 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     quarterly_path = OUTPUT_DIR / "quarterly_stability.csv"
     shap_path = OUTPUT_DIR / "shap_feature_importance.csv"
     shap_local_path = OUTPUT_DIR / "shap_local_explanations.csv"
-    for path in [risk_path, customer_path, metrics_path, root_cause_path, top_queue_path, monthly_path, quarterly_path, shap_path, shap_local_path]:
+    for path in [risk_path, customer_path, customer_360_path, metrics_path, root_cause_path, top_queue_path, monthly_path, quarterly_path, shap_path, shap_local_path]:
         assert path.exists(), f"Missing output: {path}"
 
     risk = pd.read_csv(
@@ -50,17 +51,22 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
             "primary_cause_branch",
             "top_reasons",
             "prevention_action",
+            "hybrid_decision",
             "recommended_action",
             "rule_fraud_label",
+            "rule_alert",
             "model_fraud_probability",
+            "ml_alert",
         ],
     )
     customers = pd.read_csv(customer_path)
+    customer_360 = pd.read_csv(customer_360_path)
     root_cause = pd.read_csv(root_cause_path)
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
 
     assert len(risk) >= 1_000_000
     assert len(customers) >= 50_000
+    assert len(customer_360) >= 50_000
     assert not root_cause.empty
     assert metrics["ground_truth_available"] is False
     assert metrics["data_source"] == "Processed_Data real contest tables"
@@ -72,8 +78,21 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     assert "quarterly_stability" in metrics
     assert "supervised_model_metrics" in metrics
     assert "prevention_impact" in metrics
+    assert "baseline_engineering" in metrics
+    assert metrics["baseline_engineering"]["rolling_windows_days"] == [30, 60, 90]
     assert risk["model_fraud_probability"].between(0, 1).all()
     assert {"Allow", "Enhanced Monitoring", "Step-up Authentication", "Block/Hold"}.issubset(set(risk["prevention_action"].unique()))
+    assert set(risk["hybrid_decision"].unique()).issubset(
+        {"Rule+ML alert: Block/Hold", "Rule-only alert: Step-up/eKYC", "ML-only alert: Special watchlist", "No alert: Allow"}
+    )
+    assert {
+        "transactional_iqr_upper_amount",
+        "rolling_30d_txn_count",
+        "rolling_90d_amount_avg",
+        "financial_worst_credit_risk_group",
+        "environmental_trusted_device_count",
+        "behavioral_avg_daily_activity_count",
+    }.issubset(set(customer_360.columns))
 
 
 def test_explainability_fields_are_populated_for_review_queue() -> None:
@@ -98,6 +117,9 @@ def test_no_synthetic_generator_remains() -> None:
         "amount_by_risk_band.png",
         "activity_transaction_linkage.png",
         "monthly_stability_backtest.png",
+        "hybrid_decision_matrix.png",
+        "customer_360_credit_risk_group.png",
+        "rolling_window_baseline.png",
         "shap_feature_importance.png",
         "shap_summary_beeswarm.png",
     ],

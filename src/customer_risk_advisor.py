@@ -30,7 +30,7 @@ Recommended action:
 {row['recommended_action']}
 
 Risk-officer wording:
-Hệ thống không kết luận chắc chắn đây là fraud. Giao dịch được đưa vào mức rủi ro này vì lệch khỏi baseline của chính khách hàng, có tín hiệu truy cập/giao dịch/mạng lưới đáng chú ý, hoặc được Isolation Forest xem là bất thường so với toàn bộ tập giao dịch thật.
+Hệ thống không kết luận chắc chắn đây là fraud thật. Giao dịch được đưa vào mức rủi ro này vì supervised prevention model học từ weak labels do root-cause rules tạo ra, đồng thời có reason codes nghiệp vụ để risk officer kiểm tra trước khi Block/Hold hoặc Step-up.
 """
 
 

@@ -15,9 +15,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from sklearn.ensemble import IsolationForest, RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import RobustScaler
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.metrics import average_precision_score, precision_recall_fscore_support, roc_auc_score
+from sklearn.model_selection import train_test_split
 
 
 REAL_DATA_FILES = {
@@ -131,9 +131,7 @@ class PipelineConfig:
     report_dir: Path = Path("report")
     chunksize: int = 1_000_000
     random_state: int = 20260524
-    iforest_fit_sample: int = 200_000
-    iforest_max_samples: int = 50_000
-    iforest_contamination: float = 0.02
+    supervised_train_sample: int = 260_000
     surrogate_sample: int = 120_000
     xai_sample: int = 80_000
 
@@ -536,60 +534,113 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
         existing = reasons[values]
         reasons[values] = np.where(existing == "", reason, existing + "; " + reason)
     result["rule_reasons"] = np.where(reasons == "", "Không có rule đơn lẻ vượt ngưỡng mạnh", reasons)
-    result["review_label_from_rules"] = result["rule_score_0_100"].ge(60).astype(int)
+    strong_single_branch = result["max_branch_score"].ge(85)
+    strong_multi_branch = result["active_branch_count"].ge(2) & result["rule_score_0_100"].ge(75)
+    result["rule_fraud_label"] = (result["rule_score_0_100"].ge(85) | strong_single_branch | strong_multi_branch).astype(int)
+    result["weak_label_confidence"] = np.select(
+        [result["rule_fraud_label"].eq(1), result["rule_score_0_100"].le(35)],
+        ["fraud_by_rules", "clean_by_rules"],
+        default="uncertain",
+    )
     return result
 
 
-def score_isolation_forest(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd.DataFrame, IsolationForest]:
+def _balanced_training_sample(df: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
+    confident = df.loc[df["weak_label_confidence"].isin(["fraud_by_rules", "clean_by_rules"])].copy()
+    positives = confident.loc[confident["rule_fraud_label"].eq(1)]
+    negatives = confident.loc[confident["rule_fraud_label"].eq(0)]
+    if positives.empty or negatives.empty:
+        raise ValueError("Cannot train supervised model because weak labels contain only one class.")
+    pos_n = min(len(positives), config.supervised_train_sample // 3)
+    neg_n = min(len(negatives), config.supervised_train_sample - pos_n)
+    return pd.concat(
+        [
+            positives.sample(pos_n, random_state=config.random_state),
+            negatives.sample(neg_n, random_state=config.random_state),
+        ],
+        ignore_index=True,
+    ).sample(frac=1, random_state=config.random_state)
+
+
+def _threshold_for_recall(y_true: np.ndarray, y_score: np.ndarray, target_recall: float) -> float:
+    positives = y_score[y_true == 1]
+    if len(positives) == 0:
+        return 1.0
+    return float(np.quantile(positives, max(0.0, min(1.0, 1.0 - target_recall))))
+
+
+def _best_f1_threshold(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    candidates = np.unique(np.quantile(y_score, np.linspace(0.05, 0.99, 120)))
+    best_threshold = 0.5
+    best_f1 = -1.0
+    for threshold in candidates:
+        pred = y_score >= threshold
+        _, _, f1, _ = precision_recall_fscore_support(y_true, pred, average="binary", zero_division=0)
+        if f1 > best_f1:
+            best_f1 = float(f1)
+            best_threshold = float(threshold)
+    return best_threshold
+
+
+def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd.DataFrame, RandomForestClassifier, dict[str, Any]]:
     result = df.copy()
-    feature_matrix = result[MODEL_FEATURES].replace([np.inf, -np.inf], np.nan)
-    rng = np.random.default_rng(config.random_state)
-    sample_size = min(config.iforest_fit_sample, len(feature_matrix))
-    sample_idx = rng.choice(len(feature_matrix), size=sample_size, replace=False)
-
-    imputer = SimpleImputer(strategy="median")
-    scaler = RobustScaler(quantile_range=(5, 95))
-    x_sample = scaler.fit_transform(imputer.fit_transform(feature_matrix.iloc[sample_idx]))
-    x_all = scaler.transform(imputer.transform(feature_matrix))
-
-    model = IsolationForest(
-        n_estimators=220,
-        max_samples=min(config.iforest_max_samples, sample_size),
-        contamination=config.iforest_contamination,
+    train_data = _balanced_training_sample(result, config)
+    x = train_data[MODEL_FEATURES].replace([np.inf, -np.inf], np.nan).fillna(0)
+    y = train_data["rule_fraud_label"].astype(int)
+    x_train, x_valid, y_train, y_valid = train_test_split(
+        x,
+        y,
+        test_size=0.25,
+        random_state=config.random_state,
+        stratify=y,
+    )
+    model = RandomForestClassifier(
+        n_estimators=180,
+        max_depth=14,
+        min_samples_leaf=35,
+        class_weight="balanced_subsample",
         random_state=config.random_state,
         n_jobs=-1,
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model.fit(x_sample)
-    raw_scores = -model.score_samples(x_all)
-    lo, hi = np.quantile(raw_scores, [0.01, 0.995])
-    if hi <= lo:
-        model_score = np.zeros_like(raw_scores)
-    else:
-        model_score = np.clip((raw_scores - lo) / (hi - lo) * 100, 0, 100)
-    result["model_anomaly_score_0_100"] = model_score
-    result["risk_score_0_100"] = np.clip(0.60 * result["rule_score_0_100"] + 0.40 * result["model_anomaly_score_0_100"], 0, 100)
-    return result, model
-
-
-def assign_risk_bands(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float]]:
-    result = df.copy()
+    model.fit(x_train, y_train)
+    valid_score = model.predict_proba(x_valid)[:, 1]
+    high_threshold = _threshold_for_recall(y_valid.to_numpy(), valid_score, target_recall=0.90)
+    medium_threshold = _threshold_for_recall(y_valid.to_numpy(), valid_score, target_recall=0.98)
+    critical_threshold = max(_best_f1_threshold(y_valid.to_numpy(), valid_score), float(np.quantile(valid_score[y_valid.to_numpy() == 1], 0.90)))
     thresholds = {
-        "medium_min_score": float(result["risk_score_0_100"].quantile(0.90)),
-        "high_min_score": float(result["risk_score_0_100"].quantile(0.975)),
-        "critical_min_score": float(result["risk_score_0_100"].quantile(0.995)),
+        "medium_min_probability": float(min(medium_threshold, high_threshold)),
+        "high_min_probability": float(min(high_threshold, critical_threshold)),
+        "critical_min_probability": float(critical_threshold),
     }
+    all_x = result[MODEL_FEATURES].replace([np.inf, -np.inf], np.nan).fillna(0)
+    result["model_fraud_probability"] = model.predict_proba(all_x)[:, 1]
+    result["risk_score_0_100"] = (result["model_fraud_probability"] * 100).clip(0, 100)
     result["risk_band"] = np.select(
         [
-            result["risk_score_0_100"].ge(thresholds["critical_min_score"]),
-            result["risk_score_0_100"].ge(thresholds["high_min_score"]),
-            result["risk_score_0_100"].ge(thresholds["medium_min_score"]),
+            result["model_fraud_probability"].ge(thresholds["critical_min_probability"]),
+            result["model_fraud_probability"].ge(thresholds["high_min_probability"]),
+            result["model_fraud_probability"].ge(thresholds["medium_min_probability"]),
         ],
         ["Critical", "High", "Medium"],
         default="Low",
     )
-    return result, thresholds
+    valid_pred = valid_score >= thresholds["high_min_probability"]
+    precision, recall, f1, _ = precision_recall_fscore_support(y_valid, valid_pred, average="binary", zero_division=0)
+    metrics = {
+        "model_type": "RandomForestClassifier",
+        "target": "rule_fraud_label generated from root-cause rule score",
+        "training_rows": int(len(x_train)),
+        "validation_rows": int(len(x_valid)),
+        "positive_train_rate": float(y_train.mean()),
+        "validation_roc_auc": float(roc_auc_score(y_valid, valid_score)),
+        "validation_pr_auc": float(average_precision_score(y_valid, valid_score)),
+        "validation_precision_at_high_threshold": float(precision),
+        "validation_recall_at_high_threshold": float(recall),
+        "validation_f1_at_high_threshold": float(f1),
+        "thresholds": thresholds,
+        "weak_label_note": "Metrics are measured against rule-derived weak labels, not confirmed fraud labels.",
+    }
+    return result, model, metrics
 
 
 def build_surrogate_importance(df: pd.DataFrame, config: PipelineConfig) -> pd.Series:
@@ -612,24 +663,35 @@ def recommended_action(row: pd.Series) -> str:
     band = row["risk_band"]
     branch = row["primary_cause_branch"]
     if band == "Critical" and "AML" in branch:
-        return "Đưa vào hàng đợi AML escalation, kiểm tra mạng lưới IP/device/beneficiary trước khi xử lý tiếp."
+        return "BLOCK/HOLD + AML escalation: tạm giữ giao dịch, kiểm tra mạng lưới IP/device/beneficiary trước khi xử lý tiếp."
     if band == "Critical":
-        return "Tạm giữ để manual review gần real-time, gọi xác minh khách hàng và áp dụng step-up authentication."
+        return "BLOCK/HOLD near-real-time: tạm giữ giao dịch, gọi xác minh khách hàng và áp dụng step-up authentication."
     if band == "High" and "Account takeover" in branch:
-        return "Yêu cầu xác thực tăng cường, kiểm tra thiết bị/IP mới và lịch sử đổi người thụ hưởng."
+        return "STEP-UP AUTH: yêu cầu xác thực tăng cường, kiểm tra thiết bị/IP mới và lịch sử đổi người thụ hưởng."
     if band == "High":
-        return "Đẩy vào manual review queue theo SLA trong ngày và theo dõi giao dịch tiếp theo của khách hàng."
+        return "STEP-UP AUTH + MANUAL REVIEW: xác thực bổ sung trước khi cho giao dịch đi tiếp."
     if band == "Medium":
-        return "Theo dõi tăng cường; nếu lặp lại trong 7 ngày thì nâng lên review thủ công."
-    return "Không cần can thiệp ngay; tiếp tục cập nhật baseline hành vi khách hàng."
+        return "ALLOW WITH MONITORING: cho phép nhưng theo dõi tăng cường; nếu lặp lại thì nâng lên review thủ công."
+    return "ALLOW: không cần can thiệp ngay; tiếp tục cập nhật baseline hành vi khách hàng."
 
 
 def finalise_explanations(df: pd.DataFrame, feature_importance: pd.Series) -> pd.DataFrame:
     result = df.copy()
-    model_hint = "Model bất thường cao theo các biến: " + ", ".join(feature_importance.head(3).index.tolist())
-    high_model = result["model_anomaly_score_0_100"].ge(result["model_anomaly_score_0_100"].quantile(0.975))
+    model_hint = "Supervised prevention model học mạnh từ các biến: " + ", ".join(feature_importance.head(3).index.tolist())
+    high_model = result["model_fraud_probability"].ge(result["model_fraud_probability"].quantile(0.975))
     result["top_reasons"] = result["rule_reasons"]
     result.loc[high_model, "top_reasons"] = result.loc[high_model, "top_reasons"] + "; " + model_hint
+    result["prevention_action"] = np.select(
+        [
+            result["risk_band"].eq("Critical"),
+            result["risk_band"].eq("High"),
+            result["risk_band"].eq("Medium"),
+        ],
+        ["Block/Hold", "Step-up Authentication", "Enhanced Monitoring"],
+        default="Allow",
+    )
+    result["is_prevented_or_challenged"] = result["prevention_action"].isin(["Block/Hold", "Step-up Authentication"]).astype(int)
+    result["protected_amount"] = np.where(result["prevention_action"].isin(["Block/Hold", "Step-up Authentication"]), result["TRANS_AMOUNT"], 0.0)
     result["recommended_action"] = result.apply(recommended_action, axis=1)
     return result
 
@@ -682,6 +744,29 @@ def build_root_cause_summary(scores: pd.DataFrame) -> pd.DataFrame:
         )
         .sort_values("high_or_critical_transactions", ascending=False)
     )
+
+
+def build_prevention_impact(scores: pd.DataFrame) -> dict[str, Any]:
+    weak_fraud = scores["rule_fraud_label"].eq(1)
+    challenged = scores["prevention_action"].isin(["Block/Hold", "Step-up Authentication"])
+    blocked = scores["prevention_action"].eq("Block/Hold")
+    step_up = scores["prevention_action"].eq("Step-up Authentication")
+    total_weak = int(weak_fraud.sum())
+    return {
+        "blocked_transactions": int(blocked.sum()),
+        "step_up_transactions": int(step_up.sum()),
+        "enhanced_monitoring_transactions": int(scores["prevention_action"].eq("Enhanced Monitoring").sum()),
+        "allow_transactions": int(scores["prevention_action"].eq("Allow").sum()),
+        "protected_amount_block_or_step_up": float(scores.loc[challenged, "TRANS_AMOUNT"].sum()),
+        "blocked_amount": float(scores.loc[blocked, "TRANS_AMOUNT"].sum()),
+        "step_up_amount": float(scores.loc[step_up, "TRANS_AMOUNT"].sum()),
+        "rule_labeled_fraud_transactions": total_weak,
+        "rule_labeled_fraud_amount": float(scores.loc[weak_fraud, "TRANS_AMOUNT"].sum()),
+        "prevention_coverage_against_rule_labels": float((weak_fraud & challenged).sum() / total_weak) if total_weak else 0.0,
+        "blocked_coverage_against_rule_labels": float((weak_fraud & blocked).sum() / total_weak) if total_weak else 0.0,
+        "step_up_or_block_precision_against_rule_labels": float((weak_fraud & challenged).sum() / challenged.sum()) if int(challenged.sum()) else 0.0,
+        "note": "Coverage is measured against rule-derived weak fraud labels, not confirmed fraud outcomes.",
+    }
 
 
 def build_time_stability(scores: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -798,7 +883,8 @@ def build_metrics(
     root_cause: pd.DataFrame,
     schema_report: dict[str, Any],
     thresholds: dict[str, float],
-    band_thresholds: dict[str, float],
+    supervised_model_metrics: dict[str, Any],
+    prevention_impact: dict[str, Any],
     activity_no_threshold: int,
     feature_importance: pd.Series,
     monthly_stability: pd.DataFrame,
@@ -810,8 +896,9 @@ def build_metrics(
         "assignment_track": "Problem 1 - Fraud & Anomaly Detection",
         "ground_truth_available": False,
         "evaluation_note": (
-            "The provided real data has no confirmed fraud labels, so this package reports monitoring coverage, "
-            "risk-band distribution, schema checks, and review-queue outputs instead of precision/recall against fake labels."
+            "The provided real data has no confirmed fraud labels. The workflow therefore creates rule-derived weak labels "
+            "from root-cause banking logic, trains a supervised prevention model on those labels, and reports prevention "
+            "coverage against weak labels rather than confirmed fraud accuracy."
         ),
         "pipeline_config": {key: str(value) if isinstance(value, Path) else value for key, value in asdict(config).items()},
         "row_counts": {
@@ -825,7 +912,8 @@ def build_metrics(
         },
         "schema_report": schema_report,
         "rule_thresholds": thresholds,
-        "risk_band_thresholds": band_thresholds,
+        "supervised_model_metrics": supervised_model_metrics,
+        "prevention_impact": prevention_impact,
         "activity_no_late_stage_threshold_p90": int(activity_no_threshold),
         "risk_band_distribution": scores["risk_band"].value_counts().reindex(["Low", "Medium", "High", "Critical"], fill_value=0).astype(int).to_dict(),
         "root_cause_distribution": root_cause.set_index("primary_cause_branch")["high_or_critical_transactions"].astype(int).to_dict(),
@@ -859,7 +947,7 @@ def write_report_outline(metrics: dict[str, Any], root_cause: pd.DataFrame, repo
 
 ## 1. Bối cảnh và mục tiêu
 
-Bài toán 1 của G'Contest yêu cầu phát hiện gian lận và bất thường từ dữ liệu ngân hàng 360 độ: chân dung khách hàng, giao dịch, digital activity và sản phẩm. Dữ liệu thật không có nhãn fraud đã xác minh, nên giải pháp không tự bịa nhãn. Framework được thiết kế như một hệ thống xếp hạng rủi ro để đưa giao dịch vào hàng đợi review.
+Bài toán 1 của G'Contest yêu cầu phát hiện và ngăn chặn gian lận từ dữ liệu ngân hàng 360 độ: chân dung khách hàng, giao dịch, digital activity và sản phẩm. Dữ liệu thật không có nhãn fraud đã xác minh, nên nhóm không tự bịa nhãn confirmed fraud. Thay vào đó, nhóm xây root-cause rules để tạo weak label, sau đó huấn luyện supervised prevention model và đưa ra hành động Allow / Monitor / Step-up / Block.
 
 ## 2. Cách tiếp cận nguyên nhân trước model
 
@@ -885,15 +973,18 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 2. Tạo baseline hành vi theo từng khách hàng: số tiền trung bình, P95, tần suất ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
 3. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
 4. Chấm điểm rule-based theo ba nhánh nguyên nhân.
-5. Huấn luyện Isolation Forest không giám sát để bắt giao dịch lệch khỏi phân bố hành vi chung.
-6. Điểm cuối = 60% rule score + 40% model anomaly score, sau đó chia band theo capacity review: Low, Medium, High, Critical.
-7. xAI engine xuất `top_reasons` và `recommended_action` cho từng giao dịch.
+5. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
+6. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
+7. Chia band và hành động vận hành: Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold.
+8. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
 
 ## 5. Kết quả chính
 
 - High/Critical transactions: {high_critical:,}.
 - Critical transactions: {critical:,}.
 - Khách hàng có High/Critical transaction: {metrics["review_queue"]["customers_with_high_or_critical"]:,}.
+- Prevention coverage against rule labels: {metrics["prevention_impact"]["prevention_coverage_against_rule_labels"]:.2%}.
+- Protected amount by Block/Step-up actions: {metrics["prevention_impact"]["protected_amount_block_or_step_up"]:,.0f}.
 
 Root-cause summary:
 
@@ -905,23 +996,30 @@ Monthly stability backtest:
 - `model_metrics.json` có bảng monthly/quarterly stability gồm transaction count, average risk, P95 risk và High/Critical rate.
 - Vì dữ liệu chỉ có năm 2019, đây là temporal robustness check, không phải crisis-period validation.
 
-## 6. Vì sao không báo Precision/Recall như bài có nhãn?
+## 6. Vì sao có supervised model khi dữ liệu không có nhãn fraud thật?
 
-Vì file thật không có confirmed fraud label. Báo precision/recall dựa trên nhãn tự bịa sẽ làm sai bản chất bài thi. Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
+Vì file thật không có confirmed fraud label, nhóm không báo rằng weak label là sự thật tuyệt đối. Quy trình đúng là:
+
+1. Dựa trên root-cause analysis để tạo rule score.
+2. Từ rule score tạo weak label phục vụ huấn luyện.
+3. Supervised model học lại logic nghiệp vụ trên toàn bộ feature set.
+4. Dashboard báo coverage/precision theo weak label, không claim đó là confirmed fraud accuracy.
+
+Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 
 - Schema/data quality checks.
-- Coverage của review queue.
-- Distribution theo risk band.
+- Prevention coverage against rule-derived labels.
+- Protected amount và số giao dịch được Block/Step-up.
 - Kiểm tra top-risk có reason codes rõ ràng.
 - Chuẩn bị cơ chế nhận feedback từ investigator để hiệu chỉnh threshold/model sau này.
 
 ## 7. Gợi ý vận hành thực tế
 
-- Critical: near-real-time hold/manual review, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
-- High: step-up authentication hoặc manual review trong ngày.
+- Critical: Block/Hold near-real-time, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
+- High: step-up authentication trước khi cho giao dịch đi tiếp.
 - AML branch: escalation theo mạng lưới IP/device/beneficiary, không nhìn từng giao dịch riêng lẻ.
 - Medium: theo dõi tăng cường và nâng cấp nếu lặp lại trong 7 ngày.
-- KPI sau khi triển khai: hit rate trong top-K, false positive rate theo phân khúc, review capacity, số case AML escalation, time-to-review.
+- KPI sau khi triển khai: prevention coverage, protected amount, hit rate trong top-K, false positive rate theo phân khúc, số case AML escalation, time-to-review.
 
 ## 8. Liên hệ với chuẩn nghiệp vụ quốc tế
 
@@ -933,7 +1031,7 @@ Framework của dự án bám đúng tinh thần này: risk-based, layered contr
 
 ## 9. Hạn chế
 
-Đây là framework chuẩn cho dữ liệu không nhãn, không phải model xác nhận fraud. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh threshold, huấn luyện supervised model, và đo Precision@K/Recall@K chính thức.
+Đây là framework prevention dùng weak label, không phải model xác nhận fraud tuyệt đối. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh rule, threshold, supervised model và đo Precision@K/Recall@K chính thức.
 """
     (report_dir / "final_report_outline.md").write_text(content, encoding="utf-8")
 
@@ -963,11 +1061,15 @@ def write_outputs(
         "Device_OS",
         "Beneficiary_CUSTOMER_NUMBER",
         "rule_score_0_100",
-        "model_anomaly_score_0_100",
+        "rule_fraud_label",
+        "weak_label_confidence",
+        "model_fraud_probability",
         "risk_score_0_100",
         "risk_band",
         "primary_cause_branch",
         "top_reasons",
+        "prevention_action",
+        "protected_amount",
         "recommended_action",
     ]
     scores.sort_values("risk_score_0_100", ascending=False)[output_cols].to_csv(config.output_dir / "transaction_risk_scores.csv", index=False)
@@ -976,7 +1078,16 @@ def write_outputs(
     monthly_stability.to_csv(config.output_dir / "monthly_stability.csv", index=False)
     quarterly_stability.to_csv(config.output_dir / "quarterly_stability.csv", index=False)
     scores.sort_values("risk_score_0_100", ascending=False)[output_cols].head(1000).to_csv(config.output_dir / "top_review_queue.csv", index=False)
-    xai_cols = ["transaction_row_id", "CUSTOMER_NUMBER", "risk_score_0_100", "risk_band", "primary_cause_branch", *MODEL_FEATURES]
+    xai_cols = [
+        "transaction_row_id",
+        "CUSTOMER_NUMBER",
+        "rule_fraud_label",
+        "model_fraud_probability",
+        "risk_score_0_100",
+        "risk_band",
+        "primary_cause_branch",
+        *MODEL_FEATURES,
+    ]
     top_n = min(10_000, len(scores), config.xai_sample // 4)
     random_n = min(config.xai_sample - top_n, len(scores))
     xai_sample = pd.concat(
@@ -997,12 +1108,12 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
     features = build_features(tables, activity_daily)
     thresholds = build_thresholds(features)
     rule_scored = build_rule_score(features, thresholds)
-    model_scored, _ = score_isolation_forest(rule_scored, config)
-    banded, band_thresholds = assign_risk_bands(model_scored)
-    feature_importance = build_surrogate_importance(banded, config)
-    final_scores = finalise_explanations(banded, feature_importance)
+    model_scored, _, supervised_model_metrics = train_prevention_model(rule_scored, config)
+    feature_importance = build_surrogate_importance(model_scored, config)
+    final_scores = finalise_explanations(model_scored, feature_importance)
     customer_summary = build_customer_summary(final_scores)
     root_cause = build_root_cause_summary(final_scores)
+    prevention_impact = build_prevention_impact(final_scores)
     monthly_stability, quarterly_stability = build_time_stability(final_scores)
     write_figures(final_scores, root_cause, monthly_stability, config.figures_dir)
     metrics = build_metrics(
@@ -1011,7 +1122,8 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
         root_cause,
         schema_report,
         thresholds,
-        band_thresholds,
+        supervised_model_metrics,
+        prevention_impact,
         activity_no_threshold,
         feature_importance,
         monthly_stability,
@@ -1030,8 +1142,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--figures-dir", type=Path, default=Path("outputs/figures"))
     parser.add_argument("--report-dir", type=Path, default=Path("report"))
     parser.add_argument("--chunksize", type=int, default=1_000_000)
-    parser.add_argument("--iforest-fit-sample", type=int, default=200_000)
-    parser.add_argument("--iforest-max-samples", type=int, default=50_000)
+    parser.add_argument("--supervised-train-sample", type=int, default=260_000)
     parser.add_argument("--surrogate-sample", type=int, default=120_000)
     parser.add_argument("--xai-sample", type=int, default=80_000)
     return parser.parse_args()
@@ -1045,8 +1156,7 @@ def main() -> None:
         figures_dir=args.figures_dir,
         report_dir=args.report_dir,
         chunksize=args.chunksize,
-        iforest_fit_sample=args.iforest_fit_sample,
-        iforest_max_samples=args.iforest_max_samples,
+        supervised_train_sample=args.supervised_train_sample,
         surrogate_sample=args.surrogate_sample,
         xai_sample=args.xai_sample,
     )

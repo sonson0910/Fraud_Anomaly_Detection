@@ -113,13 +113,13 @@ def build_shap_outputs(sample: pd.DataFrame, output_dir: Path, figures_dir: Path
     corr = float(np.corrcoef(predictions, train_sample["risk_score_0_100"])[0, 1])
     metrics = {
         "method": f"{model.__class__.__name__} surrogate + SHAP TreeExplainer",
-        "target": "Hybrid risk_score_0_100 from rule score and Isolation Forest anomaly score",
+        "target": "Supervised prevention risk_score_0_100 learned from rule-derived weak labels",
         "training_rows": int(len(train_sample)),
         "explained_rows": int(len(x_explain)),
         "surrogate_mae": mae,
         "surrogate_correlation": corr,
         "top_features": importance.head(10).to_dict(orient="records"),
-        "note": "This explains the risk-ranking framework, not confirmed fraud labels.",
+        "note": "This explains the supervised prevention model trained on weak labels, not confirmed fraud labels.",
     }
     (output_dir / "shap_metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding="utf-8")
     return metrics

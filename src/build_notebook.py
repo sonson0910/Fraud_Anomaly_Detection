@@ -43,7 +43,7 @@ def build_notebook(output_path: Path) -> None:
             "- phát hiện account takeover và unauthorized transfers,\n"
             "- mở rộng sang money laundering patterns nếu dữ liệu cho phép,\n"
             "- xuất được human-readable reason cho từng dự báo.\n\n"
-            "Do không có confirmed fraud label, notebook coi đây là bài toán unsupervised/risk-ranking, không phải supervised fraud classification."
+            "Do không có confirmed fraud label, notebook tạo weak label từ root-cause rules, rồi huấn luyện supervised prevention model để quyết định Allow / Monitor / Step-up / Block."
         ),
         nbf.v4.new_markdown_cell("## 3. Data Overview And Schema Check"),
         nbf.v4.new_code_cell(

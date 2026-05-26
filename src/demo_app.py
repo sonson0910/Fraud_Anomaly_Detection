@@ -28,6 +28,7 @@ def advisor_text(row: pd.Series) -> str:
     return (
         f"Transaction {row['transaction_row_id']} is {row['risk_band']} "
         f"({float(row['risk_score_0_100']):.2f}/100). Main branch: {row['primary_cause_branch']}. "
+        f"Prevention action: {row.get('prevention_action', 'N/A')}. "
         f"Reasons: {row['top_reasons']}. Recommended action: {row['recommended_action']}"
     )
 
@@ -37,7 +38,7 @@ def show_transaction(row: pd.Series) -> None:
     c1.metric("Risk band", row["risk_band"])
     c2.metric("Risk score", f"{float(row['risk_score_0_100']):.2f}")
     c3.metric("Amount", f"{float(row['TRANS_AMOUNT']):,.0f}")
-    c4.metric("Hour", int(row["TRANS_HOUR"]))
+    c4.metric("Action", row.get("prevention_action", "N/A"))
     st.write("**Primary cause branch**")
     st.write(row["primary_cause_branch"])
     st.write("**Why flagged**")
@@ -72,15 +73,15 @@ def main() -> None:
     top_queue, customers, root_cause, metrics = load_demo_data()
 
     st.title("Fraud Risk Advisor")
-    st.caption("Real-data demo for G'Contest 2026. This is a risk-ranking framework, not a confirmed-fraud classifier.")
+    st.caption("Real-data demo for G'Contest 2026. Rule-derived weak labels train a supervised fraud prevention model.")
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Transactions scored", f"{metrics['row_counts']['transactions_scored']:,}")
     m2.metric("High/Critical", f"{metrics['review_queue']['high_or_critical_transactions']:,}")
     m3.metric("Critical", f"{metrics['review_queue']['critical_transactions']:,}")
-    m4.metric("Customers impacted", f"{metrics['review_queue']['customers_with_high_or_critical']:,}")
+    m4.metric("Prevention coverage", f"{metrics['prevention_impact']['prevention_coverage_against_rule_labels']:.1%}")
 
-    tab_overview, tab_case, tab_chat, tab_xai = st.tabs(["Overview", "Case review", "Advisor chat", "xAI"])
+    tab_overview, tab_prevention, tab_case, tab_chat, tab_xai = st.tabs(["Overview", "Prevention impact", "Case review", "Advisor chat", "xAI"])
 
     with tab_overview:
         left, right = st.columns([1.2, 1])
@@ -108,6 +109,27 @@ def main() -> None:
             )
             st.plotly_chart(fig, use_container_width=True)
         st.dataframe(top_queue.head(30), use_container_width=True, hide_index=True)
+
+    with tab_prevention:
+        st.subheader("Prevention impact")
+        impact = metrics["prevention_impact"]
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Block/Hold", f"{impact['blocked_transactions']:,}")
+        p2.metric("Step-up", f"{impact['step_up_transactions']:,}")
+        p3.metric("Protected amount", f"{impact['protected_amount_block_or_step_up']:,.0f}")
+        p4.metric("Coverage vs weak labels", f"{impact['prevention_coverage_against_rule_labels']:.1%}")
+        action_counts = top_queue["prevention_action"].value_counts().reset_index()
+        action_counts.columns = ["prevention_action", "count"]
+        fig = px.bar(
+            action_counts,
+            x="prevention_action",
+            y="count",
+            title="Top queue by prevention action",
+            color="prevention_action",
+            color_discrete_sequence=["#8E2D2D", "#C46243", "#E0A72E", "#88A868"],
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Coverage is measured against rule-derived weak labels, not confirmed fraud outcomes.")
 
     with tab_case:
         st.subheader("Review a transaction or customer")

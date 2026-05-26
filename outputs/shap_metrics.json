@@ -1,51 +1,51 @@
 {
   "method": "RandomForestRegressor surrogate + SHAP TreeExplainer",
-  "target": "Hybrid risk_score_0_100 from rule score and Isolation Forest anomaly score",
+  "target": "Supervised prevention risk_score_0_100 learned from rule-derived weak labels",
   "training_rows": 60000,
   "explained_rows": 3000,
-  "surrogate_mae": 3.042913767257394,
-  "surrogate_correlation": 0.9720495968691263,
+  "surrogate_mae": 1.1791498585093072,
+  "surrogate_correlation": 0.997877148530203,
   "top_features": [
     {
-      "feature": "night_activity_count",
-      "mean_abs_shap": 8.15760086538396
-    },
-    {
       "feature": "is_external_transfer",
-      "mean_abs_shap": 7.6888552585857495
+      "mean_abs_shap": 23.518306882831606
     },
     {
-      "feature": "is_new_device_after_history",
-      "mean_abs_shap": 4.148099539101147
+      "feature": "is_new_beneficiary_after_history",
+      "mean_abs_shap": 8.972903403421654
     },
     {
-      "feature": "amount_zscore_customer",
-      "mean_abs_shap": 3.109227882084285
+      "feature": "night_activity_count",
+      "mean_abs_shap": 8.758070880874092
     },
     {
-      "feature": "amount_vs_customer_p95",
-      "mean_abs_shap": 2.3060569688626043
+      "feature": "uses_sms",
+      "mean_abs_shap": 1.7293853869793263
+    },
+    {
+      "feature": "daily_external_transfer_count",
+      "mean_abs_shap": 0.9452335012282156
     },
     {
       "feature": "daily_activity_count",
-      "mean_abs_shap": 1.893766941249627
+      "mean_abs_shap": 0.8738237773013596
     },
     {
-      "feature": "INTEREST_RATE",
-      "mean_abs_shap": 1.6735875878040212
+      "feature": "amount_vs_customer_p95",
+      "mean_abs_shap": 0.8700860702644009
     },
     {
-      "feature": "AVG_LOAN_AMOUNT",
-      "mean_abs_shap": 1.5165723284381396
+      "feature": "max_activity_no_same_day",
+      "mean_abs_shap": 0.7370660793172674
     },
     {
-      "feature": "log_trans_amount",
-      "mean_abs_shap": 1.0150383186685392
+      "feature": "is_new_ip_after_history",
+      "mean_abs_shap": 0.7230897251990976
     },
     {
-      "feature": "is_night_hour",
-      "mean_abs_shap": 0.968382553527182
+      "feature": "daily_amount_ratio",
+      "mean_abs_shap": 0.45952290456003714
     }
   ],
-  "note": "This explains the risk-ranking framework, not confirmed fraud labels."
+  "note": "This explains the supervised prevention model trained on weak labels, not confirmed fraud labels."
 }

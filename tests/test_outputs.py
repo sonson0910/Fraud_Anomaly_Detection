@@ -44,7 +44,16 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
 
     risk = pd.read_csv(
         risk_path,
-        usecols=["risk_score_0_100", "risk_band", "primary_cause_branch", "top_reasons", "recommended_action"],
+        usecols=[
+            "risk_score_0_100",
+            "risk_band",
+            "primary_cause_branch",
+            "top_reasons",
+            "prevention_action",
+            "recommended_action",
+            "rule_fraud_label",
+            "model_fraud_probability",
+        ],
     )
     customers = pd.read_csv(customer_path)
     root_cause = pd.read_csv(root_cause_path)
@@ -61,12 +70,17 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     assert "ANOMALY_TYPE" not in risk.columns
     assert "monthly_stability" in metrics
     assert "quarterly_stability" in metrics
+    assert "supervised_model_metrics" in metrics
+    assert "prevention_impact" in metrics
+    assert risk["model_fraud_probability"].between(0, 1).all()
+    assert {"Allow", "Enhanced Monitoring", "Step-up Authentication", "Block/Hold"}.issubset(set(risk["prevention_action"].unique()))
 
 
 def test_explainability_fields_are_populated_for_review_queue() -> None:
     risk = pd.read_csv(OUTPUT_DIR / "transaction_risk_scores.csv", nrows=1000)
     assert risk["top_reasons"].notna().all()
     assert risk["recommended_action"].notna().all()
+    assert risk["prevention_action"].notna().all()
     assert risk["primary_cause_branch"].notna().all()
     assert risk["top_reasons"].str.len().median() > 20
 

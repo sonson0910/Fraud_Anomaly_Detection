@@ -1,4 +1,4 @@
 primary_cause_branch,total_transactions,medium_or_above_transactions,high_or_critical_transactions,critical_transactions,avg_risk_score,median_amount,p95_amount
-Account takeover / identity compromise,1336816,118498,27782,5111,44.949265140127395,510000.0,30000000.0
-Unauthorized transfer / capital outflow,52284,20437,7099,1918,56.128099199700905,7500000.0,258400999.99999905
-AML network / mule-account pattern,28930,2868,570,62,46.79846690415787,4000000.0,70000000.0
+Account takeover / identity compromise,1336816,552896,164009,17834,53.37871888410662,510000.0,30000000.0
+Unauthorized transfer / capital outflow,52284,22992,17109,1816,66.27254301728243,7500000.0,258400999.99999905
+AML network / mule-account pattern,28930,4921,1428,16,34.372841529336576,4000000.0,70000000.0

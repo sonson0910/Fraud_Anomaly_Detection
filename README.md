@@ -2,7 +2,7 @@
 
 This project solves Problem 1: Fraud & Anomaly Detection using the real contest files in `Processed_Data/`.
 
-The current version no longer uses synthetic data or synthetic fraud labels. The real dataset has no confirmed fraud label, so the solution is built as a practical fraud-monitoring framework: it creates customer behavioral baselines, detects abnormal transactions with rules and unsupervised ML, and explains each high-risk case with human-readable reason codes.
+The current version no longer uses synthetic data or confirmed-fraud claims. The real dataset has no fraud label, so the solution uses root-cause banking rules to create weak labels, trains a supervised prevention model on those weak labels, and explains each Block/Hold or Step-up decision with human-readable reason codes.
 
 ## What This Project Does
 
@@ -13,10 +13,10 @@ The current version no longer uses synthetic data or synthetic fraud labels. The
   - AML network / mule-account pattern.
 - Uses `ACTIVITY_NO` as an ordered digital journey signal, where larger values represent later actions.
 - Scores every transaction with:
-  - rule-based branch scores for explainability,
-  - Isolation Forest for unsupervised anomaly detection,
-  - a hybrid final risk score.
-- Produces transaction-level and customer-level review queues.
+  - rule-based branch scores for weak-label creation,
+  - a supervised prevention model trained from those weak labels,
+  - prevention actions: Allow, Enhanced Monitoring, Step-up Authentication, Block/Hold.
+- Produces transaction-level and customer-level prevention queues.
 - Outputs an xAI-style explanation: `top_reasons` and `recommended_action`.
 
 ## Local Setup
@@ -58,7 +58,7 @@ Main outputs:
 - `outputs/customer_risk_summary.csv`: customer-level risk summary, local only.
 - `outputs/top_review_queue.csv`: top 1,000 transactions for demo, local only.
 - `outputs/root_cause_summary.csv`: aggregate cause summary.
-- `outputs/model_metrics.json`: schema checks, scoring thresholds, and review-queue metrics.
+- `outputs/model_metrics.json`: schema checks, weak-label model metrics, and prevention-impact metrics.
 - `outputs/monthly_stability.csv`: monthly backtest for temporal stability.
 - `outputs/shap_feature_importance.csv`: SHAP feature importance from the surrogate xAI model.
 - `outputs/shap_local_explanations.csv`: local SHAP explanations for top-risk cases.
@@ -76,7 +76,7 @@ python src/customer_risk_advisor.py --customer-id <CUSTOMER_NUMBER>
 python src/customer_risk_advisor.py --transaction-id <transaction_row_id>
 ```
 
-The advisor returns the risk band, main root-cause branch, reason codes, and recommended action. It does not claim a transaction is confirmed fraud unless a human/investigator label is later added.
+The advisor returns the risk band, prevention action, main root-cause branch, reason codes, and recommended action. It does not claim a transaction is confirmed fraud unless a human/investigator label is later added.
 
 Run the Streamlit live demo:
 
@@ -84,11 +84,11 @@ Run the Streamlit live demo:
 streamlit run src/demo_app.py
 ```
 
-The Streamlit app includes an overview dashboard, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
+The Streamlit app includes an overview dashboard, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
 
 ## xAI And Stability
 
-The primary explanations are reason codes tied to the cause-first framework. A separate SHAP engine trains a tree surrogate to explain the final hybrid risk score:
+The primary explanations are reason codes tied to the cause-first framework. A separate SHAP engine trains a tree surrogate to explain the supervised prevention risk score:
 
 ```bash
 python src/xai_shap_engine.py
@@ -98,8 +98,8 @@ If the local machine has the XGBoost OpenMP runtime, the script can use XGBoost.
 
 The data covers 2019 only, so stability is measured as a monthly/quarterly temporal backtest rather than a crisis-period validation.
 
-## Why There Is No Precision/Recall Yet
+## Weak Labels And Evaluation
 
-The provided real data does not contain confirmed fraud labels. Creating fake labels would make the evaluation look stronger than it really is. This implementation therefore reports valid no-label evaluation outputs: schema quality, risk-band distribution, top-risk review queue, branch coverage, and explanation quality.
+The provided real data does not contain confirmed fraud labels. The project therefore creates rule-derived weak labels from the three root-cause branches and reports model performance against those weak labels. Dashboard prevention coverage means coverage against rule-derived labels, not confirmed real fraud outcomes.
 
-When reviewed cases become available, the same pipeline can be extended to measure Precision@K, Recall@K, PR-AUC, and to train a supervised model.
+When reviewed cases become available, the same pipeline can be recalibrated to measure real Precision@K, Recall@K, PR-AUC, false positive rate, and protected value.

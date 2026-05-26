@@ -111,7 +111,7 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
         c,
         [
             "No synthetic data and no fake fraud labels.",
-            "Output is a review queue with explainable risk reasons.",
+            "Output is a prevention queue with explainable risk reasons.",
             "Framework aligns with risk-based banking controls: step-up authentication, manual review, AML escalation.",
         ],
         0.8 * inch,
@@ -136,13 +136,13 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     )
     c.showPage()
 
-    slide_header(c, "Framework", "Data dictionary -> behavioral baseline -> root-cause rules -> anomaly model -> xAI review queue")
+    slide_header(c, "Framework", "Data dictionary -> behavioral baseline -> root-cause rules -> weak labels -> prevention model")
     steps = [
         ("1. Data", "Customer, Transaction, Activity, Deposit, Lending, Card"),
         ("2. Baseline", "Customer amount P95, daily frequency, known device/IP/beneficiary"),
         ("3. Root causes", "ATO, unauthorized transfer, AML network scores"),
-        ("4. Model", "Isolation Forest catches unusual combinations without fraud labels"),
-        ("5. xAI", "Reason codes, SHAP surrogate, recommended action"),
+        ("4. Model", "Supervised classifier learns from rule-derived weak labels"),
+        ("5. xAI + Action", "Reason codes, SHAP surrogate, Allow/Monitor/Step-up/Block"),
     ]
     x = 0.65 * inch
     for idx, (title, body) in enumerate(steps):
@@ -164,7 +164,7 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
         c,
         [
             "Only 2019 data is available, so this is a temporal robustness check rather than a crisis-period validation.",
-            "The monitoring KPI is not accuracy without labels; it is review queue volume, high-risk rate, and reason-code consistency over time.",
+            "The KPI is not confirmed-fraud accuracy; it is weak-label prevention coverage, protected amount, and reason-code consistency over time.",
         ],
         0.9 * inch,
         1.05 * inch,
@@ -173,7 +173,7 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     )
     c.showPage()
 
-    slide_header(c, "xAI Engine", "SHAP explains a tree surrogate of the hybrid risk score")
+    slide_header(c, "xAI Engine", "SHAP explains a tree surrogate of the supervised prevention score")
     add_image(c, figures_dir / "shap_feature_importance.png", 0.7 * inch, 1.05 * inch, 5.8 * inch, 4.5 * inch)
     add_image(c, figures_dir / "shap_summary_beeswarm.png", 6.7 * inch, 1.05 * inch, 5.8 * inch, 4.5 * inch)
     c.showPage()
@@ -183,7 +183,7 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
         c,
         [
             "Critical: temporary hold, near-real-time manual review, customer verification, step-up authentication.",
-            "High: same-day review queue and device/IP/beneficiary investigation.",
+            "High: step-up authentication before allowing the transaction to proceed.",
             "AML branch: network escalation rather than single-transaction review only.",
             "Medium: enhanced monitoring; escalate if repeated within the next review window.",
             "Feedback loop: investigator decisions become labels for Precision@K, Recall@K and supervised model tuning.",
@@ -243,10 +243,10 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
         ),
         (
             "Framework",
-            "Data -> baseline -> rules -> Isolation Forest -> SHAP/xAI -> review queue.",
+            "Data -> baseline -> rules -> weak labels -> supervised prevention model -> SHAP/xAI.",
             [
                 "Behavioral baseline by customer",
-                "60% root-cause rules + 40% anomaly score",
+                "Rule-derived weak labels train the supervised prevention model",
                 "Human-readable reason codes and recommended actions",
             ],
         ),

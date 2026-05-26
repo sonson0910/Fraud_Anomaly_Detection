@@ -2,7 +2,7 @@
 
 ## 1. Bối cảnh và mục tiêu
 
-Bài toán 1 của G'Contest yêu cầu phát hiện gian lận và bất thường từ dữ liệu ngân hàng 360 độ: chân dung khách hàng, giao dịch, digital activity và sản phẩm. Dữ liệu thật không có nhãn fraud đã xác minh, nên giải pháp không tự bịa nhãn. Framework được thiết kế như một hệ thống xếp hạng rủi ro để đưa giao dịch vào hàng đợi review.
+Bài toán 1 của G'Contest yêu cầu phát hiện và ngăn chặn gian lận từ dữ liệu ngân hàng 360 độ: chân dung khách hàng, giao dịch, digital activity và sản phẩm. Dữ liệu thật không có nhãn fraud đã xác minh, nên nhóm không tự bịa nhãn confirmed fraud. Thay vào đó, nhóm xây root-cause rules để tạo weak label, sau đó huấn luyện supervised prevention model và đưa ra hành động Allow / Monitor / Step-up / Block.
 
 ## 2. Cách tiếp cận nguyên nhân trước model
 
@@ -28,22 +28,24 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 2. Tạo baseline hành vi theo từng khách hàng: số tiền trung bình, P95, tần suất ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
 3. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
 4. Chấm điểm rule-based theo ba nhánh nguyên nhân.
-5. Huấn luyện Isolation Forest không giám sát để bắt giao dịch lệch khỏi phân bố hành vi chung.
-6. Điểm cuối = 60% rule score + 40% model anomaly score, sau đó chia band theo capacity review: Low, Medium, High, Critical.
-7. xAI engine xuất `top_reasons` và `recommended_action` cho từng giao dịch.
-8. SHAP engine huấn luyện tree surrogate để giải thích `risk_score_0_100` bằng global feature importance và local SHAP drivers.
+5. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
+6. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
+7. Chia band và hành động vận hành: Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold.
+8. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
 
 ## 5. Kết quả chính
 
-- High/Critical transactions: 35,451.
-- Critical transactions: 7,091.
-- Khách hàng có High/Critical transaction: 8,662.
+- High/Critical transactions: 182,546.
+- Critical transactions: 19,666.
+- Khách hàng có High/Critical transaction: 25,194.
+- Prevention coverage against rule labels: 90.34%.
+- Protected amount by Block/Step-up actions: 3,935,164,142,376.
 
 Root-cause summary:
 
-- Account takeover / identity compromise: 27,782 High/Critical giao dịch, risk trung bình 44.9/100.
-- Unauthorized transfer / capital outflow: 7,099 High/Critical giao dịch, risk trung bình 56.1/100.
-- AML network / mule-account pattern: 570 High/Critical giao dịch, risk trung bình 46.8/100.
+- Account takeover / identity compromise: 164,009 High/Critical giao dịch, risk trung bình 53.4/100.
+- Unauthorized transfer / capital outflow: 17,109 High/Critical giao dịch, risk trung bình 66.3/100.
+- AML network / mule-account pattern: 1,428 High/Critical giao dịch, risk trung bình 34.4/100.
 
 Monthly stability backtest:
 
@@ -51,50 +53,32 @@ Monthly stability backtest:
 - `model_metrics.json` có bảng monthly/quarterly stability gồm transaction count, average risk, P95 risk và High/Critical rate.
 - Vì dữ liệu chỉ có năm 2019, đây là temporal robustness check, không phải crisis-period validation.
 
-## 6. xAI engine
+## 6. Vì sao có supervised model khi dữ liệu không có nhãn fraud thật?
 
-Giải thích có hai lớp:
+Vì file thật không có confirmed fraud label, nhóm không báo rằng weak label là sự thật tuyệt đối. Quy trình đúng là:
 
-- Reason codes trực tiếp từ root-cause rules, dùng trong `top_reasons` và `recommended_action`.
-- SHAP TreeExplainer trên surrogate model để chứng minh feature nào đang kéo risk score lên/xuống.
+1. Dựa trên root-cause analysis để tạo rule score.
+2. Từ rule score tạo weak label phục vụ huấn luyện.
+3. Supervised model học lại logic nghiệp vụ trên toàn bộ feature set.
+4. Dashboard báo coverage/precision theo weak label, không claim đó là confirmed fraud accuracy.
 
-Output liên quan:
-
-- `outputs/shap_feature_importance.csv`.
-- `outputs/shap_local_explanations.csv`.
-- `outputs/figures/shap_feature_importance.png`.
-- `outputs/figures/shap_summary_beeswarm.png`.
-
-Vì XGBoost trên macOS cần `libomp`, script `src/xai_shap_engine.py` có cơ chế fallback sang tree surrogate của scikit-learn nếu XGBoost native không load được. SHAP values vẫn được tính thật bằng TreeExplainer.
-
-## 7. Vì sao không báo Precision/Recall như bài có nhãn?
-
-Vì file thật không có confirmed fraud label. Báo precision/recall dựa trên nhãn tự bịa sẽ làm sai bản chất bài thi. Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
+Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 
 - Schema/data quality checks.
-- Coverage của review queue.
-- Distribution theo risk band.
+- Prevention coverage against rule-derived labels.
+- Protected amount và số giao dịch được Block/Step-up.
 - Kiểm tra top-risk có reason codes rõ ràng.
 - Chuẩn bị cơ chế nhận feedback từ investigator để hiệu chỉnh threshold/model sau này.
 
-## 8. Live demo
+## 7. Gợi ý vận hành thực tế
 
-Dự án có hai cách demo:
-
-- CLI: `python src/customer_risk_advisor.py --top-critical 3`.
-- UI/chatbot: `streamlit run src/demo_app.py`.
-
-Streamlit app có overview dashboard, case review, advisor chat và xAI tab.
-
-## 9. Gợi ý vận hành thực tế
-
-- Critical: near-real-time hold/manual review, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
-- High: step-up authentication hoặc manual review trong ngày.
+- Critical: Block/Hold near-real-time, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
+- High: step-up authentication trước khi cho giao dịch đi tiếp.
 - AML branch: escalation theo mạng lưới IP/device/beneficiary, không nhìn từng giao dịch riêng lẻ.
 - Medium: theo dõi tăng cường và nâng cấp nếu lặp lại trong 7 ngày.
-- KPI sau khi triển khai: hit rate trong top-K, false positive rate theo phân khúc, review capacity, số case AML escalation, time-to-review.
+- KPI sau khi triển khai: prevention coverage, protected amount, hit rate trong top-K, false positive rate theo phân khúc, số case AML escalation, time-to-review.
 
-## 10. Liên hệ với chuẩn nghiệp vụ quốc tế
+## 8. Liên hệ với chuẩn nghiệp vụ quốc tế
 
 - FATF Risk-Based Approach for Banking Sector: ngân hàng nên hiểu mức độ rủi ro, ưu tiên nguồn lực vào nơi rủi ro cao và áp dụng biện pháp giảm thiểu tương ứng. Link: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Risk-based-approach-banking-sector.html
 - FFIEC Authentication and Access Guidance: với digital banking, kiểm soát nên theo hướng layered security, MFA/step-up authentication và tăng kiểm soát khi giao dịch hoặc truy cập có rủi ro cao. Link: https://www.ffiec.gov/news/press-releases/2021/pr-08-11
@@ -102,6 +86,6 @@ Streamlit app có overview dashboard, case review, advisor chat và xAI tab.
 
 Framework của dự án bám đúng tinh thần này: risk-based, layered controls, review queue theo capacity, và xAI reason codes để investigator kiểm tra được.
 
-## 11. Hạn chế
+## 9. Hạn chế
 
-Đây là framework chuẩn cho dữ liệu không nhãn, không phải model xác nhận fraud. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh threshold, huấn luyện supervised model, và đo Precision@K/Recall@K chính thức.
+Đây là framework prevention dùng weak label, không phải model xác nhận fraud tuyệt đối. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh rule, threshold, supervised model và đo Precision@K/Recall@K chính thức.

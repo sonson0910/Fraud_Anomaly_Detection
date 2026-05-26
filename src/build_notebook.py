@@ -17,7 +17,8 @@ def build_notebook(output_path: Path) -> None:
             "# G'Contest 2026 - Fraud & Anomaly Detection\n\n"
             "Notebook này dùng dữ liệu thật trong `Processed_Data/`. Dữ liệu không có nhãn fraud đã xác minh, "
             "vì vậy bài làm không tạo synthetic label. Mục tiêu là xây dựng framework phát hiện bất thường, "
-            "xếp hạng giao dịch cần review và giải thích nguyên nhân theo nghiệp vụ ngân hàng."
+            "tạo weak label từ rule nghiệp vụ, huấn luyện prevention model, xếp hạng giao dịch cần can thiệp "
+            "và giải thích nguyên nhân theo nghiệp vụ ngân hàng."
         ),
         nbf.v4.new_markdown_cell("## 1. Setup"),
         nbf.v4.new_code_cell(
@@ -85,7 +86,15 @@ def build_notebook(output_path: Path) -> None:
             "    ],\n"
             "})"
         ),
-        nbf.v4.new_markdown_cell("## 5. Run Full Pipeline"),
+        nbf.v4.new_markdown_cell(
+            "## 5. Mentor Feedback Incorporated\n\n"
+            "- `Beneficiary_CUSTOMER_NUMBER = 0/0.0/NaN` không bị coi mặc định là missing data; pipeline tách nhóm này thành merchant/non-customer beneficiary và phân tích tiếp bằng `Merchant_ID_Masked` + loại giao dịch.\n"
+            "- Nhóm không có customer beneficiary không được đưa vào mạng lưới customer-to-customer money mule.\n"
+            "- Nếu merchant nội bộ/tín dụng không có customer beneficiary nhưng đi cùng tín hiệu bất thường, pipeline đưa vào reason code để review.\n"
+            "- Overdue lending/credit được quy về nhóm rủi ro 1-5 để làm bối cảnh khách hàng, nhưng không dùng một mình để kết luận fraud.\n"
+            "- Vì title là giảm thiểu rủi ro, mục tiêu tối ưu ưu tiên recall/prevention coverage; false positive rate vẫn được báo để kiểm soát trải nghiệm khách hàng."
+        ),
+        nbf.v4.new_markdown_cell("## 6. Run Full Pipeline"),
         nbf.v4.new_code_cell(
             "config = PipelineConfig(\n"
             "    raw_dir=RAW_DIR,\n"
@@ -96,7 +105,7 @@ def build_notebook(output_path: Path) -> None:
             "metrics = run_pipeline(config)\n"
             "metrics['review_queue']"
         ),
-        nbf.v4.new_markdown_cell("## 6. Risk Outputs"),
+        nbf.v4.new_markdown_cell("## 7. Risk Outputs"),
         nbf.v4.new_code_cell(
             "risk = pd.read_csv(OUTPUT_DIR / 'transaction_risk_scores.csv')\n"
             "customers = pd.read_csv(OUTPUT_DIR / 'customer_risk_summary.csv')\n"
@@ -106,7 +115,7 @@ def build_notebook(output_path: Path) -> None:
         nbf.v4.new_code_cell(
             "risk['risk_band'].value_counts().reindex(['Low','Medium','High','Critical'])"
         ),
-        nbf.v4.new_markdown_cell("## 7. Monthly / Quarterly Stability Backtest"),
+        nbf.v4.new_markdown_cell("## 8. Monthly / Quarterly Stability Backtest"),
         nbf.v4.new_code_cell(
             "monthly = pd.read_csv(OUTPUT_DIR / 'monthly_stability.csv')\n"
             "quarterly = pd.read_csv(OUTPUT_DIR / 'quarterly_stability.csv')\n"
@@ -123,7 +132,7 @@ def build_notebook(output_path: Path) -> None:
             "plt.title('Monthly stability backtest on 2019 data')\n"
             "plt.tight_layout()"
         ),
-        nbf.v4.new_markdown_cell("## 8. Explainability Examples"),
+        nbf.v4.new_markdown_cell("## 9. Explainability Examples"),
         nbf.v4.new_code_cell(
             "risk[[\n"
             "    'transaction_row_id', 'CUSTOMER_NUMBER', 'TRANS_DATE', 'TRANS_HOUR', 'TRANS_LV1', 'TRANS_LV2',\n"
@@ -131,7 +140,7 @@ def build_notebook(output_path: Path) -> None:
             "    'top_reasons', 'recommended_action'\n"
             "]].head(10)"
         ),
-        nbf.v4.new_markdown_cell("## 9. SHAP xAI Surrogate"),
+        nbf.v4.new_markdown_cell("## 10. SHAP xAI Surrogate"),
         nbf.v4.new_code_cell(
             "# Run once after the main pipeline if SHAP files do not exist:\n"
             "# !python src/xai_shap_engine.py\n"
@@ -141,23 +150,27 @@ def build_notebook(output_path: Path) -> None:
         ),
         nbf.v4.new_code_cell("shap_local.head(10)"),
         nbf.v4.new_markdown_cell(
-            "## 10. Evaluation Without Fraud Labels\n\n"
-            "Vì dữ liệu không có nhãn fraud, không báo precision/recall trên nhãn tự tạo. Evaluation hợp lệ gồm:\n\n"
-            "- kiểm tra schema và data quality,\n"
-            "- kiểm tra phân phối risk band để phù hợp capacity review,\n"
-            "- kiểm tra các top-risk transaction có reason codes rõ ràng,\n"
-            "- kiểm tra ba nhánh nguyên nhân có output riêng,\n"
-            "- chuẩn bị feedback loop để khi investigator xác nhận case thì đo Precision@K/Recall@K thật."
+            "## 11. Evaluation With Weak Labels\n\n"
+            "Vì dữ liệu không có confirmed fraud label, các metric dưới đây được đo theo `rule_fraud_label`. "
+            "Đây là weak label sinh từ rule nghiệp vụ, không phải nhãn investigator xác nhận. Cách trình bày đúng là: "
+            "framework hiện đo khả năng model học lại và vận hành hóa rule engine, đồng thời chuẩn bị feedback loop "
+            "để thay weak label bằng confirmed label sau này.\n\n"
+            "Theo feedback mentor, fraud track ưu tiên bắt được nhiều case rủi ro nhất. Vì vậy cần nhìn recall/prevention coverage trước, "
+            "sau đó kiểm soát precision và false-positive rate để không làm phiền khách hàng thường."
         ),
         nbf.v4.new_code_cell(
             "with open(OUTPUT_DIR / 'model_metrics.json', encoding='utf-8') as f:\n"
             "    metrics = json.load(f)\n"
             "pd.Series(metrics['risk_band_distribution'])"
         ),
+        nbf.v4.new_code_cell("pd.Series(metrics['supervised_model_metrics'])"),
+        nbf.v4.new_code_cell(
+            "pd.DataFrame(metrics['supervised_model_metrics']['validation_confusion_matrix_at_high_threshold'], index=[0])"
+        ),
         nbf.v4.new_code_cell(
             "pd.DataFrame(metrics['top_surrogate_features'].items(), columns=['feature', 'importance']).head(15)"
         ),
-        nbf.v4.new_markdown_cell("## 11. Report Figures"),
+        nbf.v4.new_markdown_cell("## 12. Report Figures"),
         nbf.v4.new_code_cell(
             "from IPython.display import Image, display\n"
             "for path in sorted((OUTPUT_DIR / 'figures').glob('*.png')):\n"
@@ -165,7 +178,7 @@ def build_notebook(output_path: Path) -> None:
             "    display(Image(filename=str(path)))"
         ),
         nbf.v4.new_markdown_cell(
-            "## 12. Live Demo And Slide Deck\n\n"
+            "## 13. Live Demo And Slide Deck\n\n"
             "Sau khi chạy pipeline, có thể demo bằng CLI hoặc Streamlit:\n\n"
             "```bash\n"
             "python src/customer_risk_advisor.py --top-critical 3\n"

@@ -118,6 +118,14 @@ def main() -> None:
         p2.metric("Step-up", f"{impact['step_up_transactions']:,}")
         p3.metric("Protected amount", f"{impact['protected_amount_block_or_step_up']:,.0f}")
         p4.metric("Coverage vs weak labels", f"{impact['prevention_coverage_against_rule_labels']:.1%}")
+        model_metrics = metrics["supervised_model_metrics"]
+        q1, q2, q3, q4 = st.columns(4)
+        q1.metric("Recall vs weak labels", f"{model_metrics['validation_recall_at_high_threshold']:.1%}")
+        q2.metric("Precision vs weak labels", f"{model_metrics['validation_precision_at_high_threshold']:.1%}")
+        q3.metric("False positive rate", f"{model_metrics['validation_false_positive_rate_at_high_threshold']:.2%}")
+        q4.metric("PR-AUC vs weak labels", f"{model_metrics['validation_pr_auc']:.3f}")
+        st.write("**Validation confusion matrix against weak labels**")
+        st.json(model_metrics["validation_confusion_matrix_at_high_threshold"])
         action_counts = top_queue["prevention_action"].value_counts().reset_index()
         action_counts.columns = ["prevention_action", "count"]
         fig = px.bar(

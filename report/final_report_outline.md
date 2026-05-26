@@ -33,19 +33,26 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 7. Chia band và hành động vận hành: Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold.
 8. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
 
+Xử lý nghiệp vụ bổ sung:
+
+- `Beneficiary_CUSTOMER_NUMBER` bằng 0/0.0/NaN không được xem là node khách hàng trong mạng lưới money mule. Pipeline tách nhóm này thành non-customer/merchant beneficiary và phân tích tiếp bằng `Merchant_ID_Masked`.
+- Các merchant như ví điện tử, QR, telco, utility thường không có customer beneficiary cụ thể; nhóm này không bị coi là missing data mặc định.
+- Nếu merchant nội bộ/tín dụng không có customer beneficiary nhưng đi kèm số tiền, giờ hoặc activity bất thường, pipeline đưa vào reason code để kiểm tra thêm.
+- Overdue lending/credit được gom thành nhóm rủi ro tín dụng 1-5 theo số ngày quá hạn để bổ sung bối cảnh khách hàng tốt/xấu.
+
 ## 5. Kết quả chính
 
-- High/Critical transactions: 182,546.
-- Critical transactions: 19,666.
-- Khách hàng có High/Critical transaction: 25,194.
-- Prevention coverage against rule labels: 90.34%.
-- Protected amount by Block/Step-up actions: 3,935,164,142,376.
+- High/Critical transactions: 179,979.
+- Critical transactions: 20,242.
+- Khách hàng có High/Critical transaction: 24,888.
+- Prevention coverage against rule labels: 90.30%.
+- Protected amount by Block/Step-up actions: 3,536,070,412,076.
 
 Root-cause summary:
 
-- Account takeover / identity compromise: 164,009 High/Critical giao dịch, risk trung bình 53.4/100.
-- Unauthorized transfer / capital outflow: 17,109 High/Critical giao dịch, risk trung bình 66.3/100.
-- AML network / mule-account pattern: 1,428 High/Critical giao dịch, risk trung bình 34.4/100.
+- Account takeover / identity compromise: 161,830 High/Critical giao dịch, risk trung bình 53.1/100.
+- Unauthorized transfer / capital outflow: 16,765 High/Critical giao dịch, risk trung bình 67.6/100.
+- AML network / mule-account pattern: 1,384 High/Critical giao dịch, risk trung bình 34.7/100.
 
 Monthly stability backtest:
 
@@ -67,8 +74,11 @@ Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 - Schema/data quality checks.
 - Prevention coverage against rule-derived labels.
 - Protected amount và số giao dịch được Block/Step-up.
+- Confusion matrix, recall, precision và false-positive rate theo weak label.
 - Kiểm tra top-risk có reason codes rõ ràng.
 - Chuẩn bị cơ chế nhận feedback từ investigator để hiệu chỉnh threshold/model sau này.
+
+Theo định hướng giảm thiểu rủi ro, threshold đang ưu tiên bắt được nhiều giao dịch weak-fraud hơn, tức recall/prevention coverage được ưu tiên trước; false-positive rate vẫn được theo dõi để không làm phiền khách hàng tốt quá mức.
 
 ## 7. Gợi ý vận hành thực tế
 

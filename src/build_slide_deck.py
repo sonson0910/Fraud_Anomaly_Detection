@@ -102,6 +102,8 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     output_path.parent.mkdir(parents=True, exist_ok=True)
     c = canvas.Canvas(str(output_path), pagesize=PAGE)
     c.setTitle("GContest Fraud Anomaly Detection Slide Deck")
+    prevention = metrics.get("prevention_impact", {})
+    model_metrics = metrics.get("supervised_model_metrics", {})
 
     slide_header(c, "Fraud & Anomaly Detection", "Cause-first risk framework using real G'Contest banking data")
     add_metric(c, "Transactions scored", f"{metrics['row_counts']['transactions_scored']:,}", 0.65 * inch, 4.85 * inch)
@@ -113,6 +115,7 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
             "No synthetic data and no fake fraud labels.",
             "Output is a prevention queue with explainable risk reasons.",
             "Framework aligns with risk-based banking controls: step-up authentication, manual review, AML escalation.",
+            "Optimization priority: catch more fraud-risk cases first, while reporting false-positive rate for customer experience control.",
         ],
         0.8 * inch,
         4.15 * inch,
@@ -151,6 +154,25 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
         c.roundRect(x, y, 11.9 * inch, 0.65 * inch, 5, fill=1, stroke=0)
         draw_text(c, title, x + 0.22 * inch, y + 0.40 * inch, 15, BLUE, 24)
         draw_text(c, body, x + 2.0 * inch, y + 0.40 * inch, 14, INK, 82)
+    c.showPage()
+
+    slide_header(c, "Prevention Performance", "Weak-label evaluation for an operational fraud prevention queue")
+    add_metric(c, "Recall / prevention coverage", f"{prevention.get('prevention_coverage_against_rule_labels', 0):.1%}", 0.65 * inch, 4.85 * inch, RED)
+    add_metric(c, "Precision of Step-up/Block", f"{prevention.get('step_up_or_block_precision_against_rule_labels', 0):.1%}", 3.55 * inch, 4.85 * inch, BLUE)
+    add_metric(c, "False-positive rate", f"{model_metrics.get('validation_false_positive_rate_at_high_threshold', 0):.2%}", 6.45 * inch, 4.85 * inch, GREEN)
+    draw_bullets(
+        c,
+        [
+            "Metrics are measured against rule-derived weak labels because the contest data has no confirmed fraud labels.",
+            "The bank objective is risk minimization: prioritize catching suspected fraud, then tune thresholds against review capacity and customer friction.",
+            f"Protected amount by Block/Step-up queue: {prevention.get('protected_amount_block_or_step_up', 0):,.0f} VND.",
+            f"High-threshold confusion matrix: {model_metrics.get('validation_confusion_matrix_at_high_threshold', {})}.",
+        ],
+        0.8 * inch,
+        4.0 * inch,
+        15,
+        98,
+    )
     c.showPage()
 
     slide_header(c, "Key Insights", "Top-risk queue is explainable by root-cause branch")
@@ -230,6 +252,8 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
     blank = prs.slide_layouts[6]
+    prevention = metrics.get("prevention_impact", {})
+    model_metrics = metrics.get("supervised_model_metrics", {})
     slides = [
         ("Fraud & Anomaly Detection", "Cause-first framework using real data, no synthetic labels.", []),
         (
@@ -253,7 +277,11 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
         (
             "Key Metrics",
             f"{metrics['row_counts']['transactions_scored']:,} transactions scored; {metrics['review_queue']['high_or_critical_transactions']:,} High/Critical.",
-            [],
+            [
+                f"Prevention coverage vs weak labels: {prevention.get('prevention_coverage_against_rule_labels', 0):.1%}",
+                f"False-positive rate at high threshold: {model_metrics.get('validation_false_positive_rate_at_high_threshold', 0):.2%}",
+                "Confusion matrix and protected amount are reported for business impact, not only model accuracy.",
+            ],
         ),
     ]
     for title, subtitle, bullets in slides:

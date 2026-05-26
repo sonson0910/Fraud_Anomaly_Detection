@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import average_precision_score, precision_recall_fscore_support, roc_auc_score
+from sklearn.metrics import average_precision_score, confusion_matrix, precision_recall_fscore_support, roc_auc_score
 from sklearn.model_selection import train_test_split
 
 
@@ -83,6 +83,10 @@ MODEL_FEATURES = [
     "is_external_transfer",
     "is_cashout_flow",
     "is_round_high_amount",
+    "beneficiary_is_customer",
+    "has_no_customer_beneficiary",
+    "merchant_internal_credit_flag",
+    "merchant_wallet_or_qr_flag",
     "amount_zscore_customer",
     "amount_vs_customer_p95",
     "amount_global_percentile",
@@ -114,6 +118,8 @@ MODEL_FEATURES = [
     "OVERDUE_CREDIT",
     "LIMIT_AMT",
     "OUTSTANDING_BALANCE",
+    "max_overdue_days",
+    "credit_risk_group_num",
     "credit_utilization",
     "amount_vs_ca_balance",
     "customer_age",
@@ -299,6 +305,14 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series | float, default: 
     return result.replace([np.inf, -np.inf], np.nan).fillna(default)
 
 
+def credit_risk_group(overdue_days: pd.Series) -> pd.Series:
+    return pd.cut(
+        overdue_days.fillna(0),
+        bins=[-1, 9, 30, 90, 180, np.inf],
+        labels=[1, 2, 3, 4, 5],
+    ).astype(int)
+
+
 def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame) -> pd.DataFrame:
     trx = tables["transaction"].copy()
     trx.insert(0, "transaction_row_id", np.arange(1, len(trx) + 1, dtype=np.int64))
@@ -310,7 +324,11 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
 
     for col in ["TRANS_LV1", "TRANS_LV2", "DAY_OF_WEEK", "IP_Address_Proxy", "Device_ID_Hash", "Device_OS", "Merchant_ID_Masked"]:
         trx[col] = trx[col].fillna("UNKNOWN").astype(str)
-    trx["Beneficiary_CUSTOMER_NUMBER"] = trx["Beneficiary_CUSTOMER_NUMBER"].fillna("NO_BENEFICIARY").astype(str)
+    raw_beneficiary = trx["Beneficiary_CUSTOMER_NUMBER"].fillna("NO_CUSTOMER_BENEFICIARY").astype(str).str.strip()
+    no_customer_values = {"", "0", "0.0", "nan", "NaN", "None", "NO_BENEFICIARY", "NO_CUSTOMER_BENEFICIARY"}
+    trx["beneficiary_is_customer"] = (~raw_beneficiary.isin(no_customer_values)).astype(int)
+    trx["has_no_customer_beneficiary"] = trx["beneficiary_is_customer"].eq(0).astype(int)
+    trx["Beneficiary_CUSTOMER_NUMBER"] = np.where(trx["beneficiary_is_customer"].eq(1), raw_beneficiary, "NO_CUSTOMER_BENEFICIARY")
 
     lv1 = trx["TRANS_LV1"].str.lower()
     lv2 = trx["TRANS_LV2"].str.lower()
@@ -320,6 +338,9 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
     trx["is_transfer"] = lv1.eq("transfer").astype(int)
     trx["is_external_transfer"] = (lv1.eq("transfer") & lv2.isin(["outside_bank", "external_transfer", "fast_transfer", "outside bank"])).astype(int)
     trx["is_cashout_flow"] = (lv2.isin(["outside_bank", "ewallet", "mobile", "vndirect"]) | lv1.eq("transfer")).astype(int)
+    merchant_upper = trx["Merchant_ID_Masked"].str.upper()
+    trx["merchant_internal_credit_flag"] = merchant_upper.str.contains("INTERNAL_CREDIT|INTERNAL_LENDING|CREDIT|LENDING", regex=True, na=False).astype(int)
+    trx["merchant_wallet_or_qr_flag"] = merchant_upper.str.contains("WALLET|QR_|PAY|MOMO|ZALO|SHOPEE", regex=True, na=False).astype(int)
     amount_p75 = trx["TRANS_AMOUNT"].quantile(0.75)
     trx["is_round_high_amount"] = ((trx["TRANS_AMOUNT"] >= amount_p75) & np.isclose(trx["TRANS_AMOUNT"] % 1_000_000, 0)).astype(int)
     trx["amount_global_percentile"] = trx["TRANS_AMOUNT"].rank(pct=True, method="average")
@@ -335,6 +356,7 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
     customer["uses_strong_auth"] = verify.str.contains("SMART|OTP|TOKEN|BIOMETRIC", regex=True, na=False).astype(int)
     customer_cols = ["CUSTOMER_NUMBER", "customer_age", "ib_tenure_days", "uses_sms", "uses_strong_auth"]
     trx = trx.merge(customer[customer_cols], on="CUSTOMER_NUMBER", how="left")
+    trx["customer_beneficiary_for_count"] = trx["Beneficiary_CUSTOMER_NUMBER"].where(trx["beneficiary_is_customer"].eq(1))
 
     cust_stats = (
         trx.groupby("CUSTOMER_NUMBER")
@@ -347,7 +369,7 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
             customer_first_txn_date=("TRANS_DATE", "min"),
             customer_unique_devices=("Device_ID_Hash", "nunique"),
             customer_unique_ips=("IP_Address_Proxy", "nunique"),
-            customer_unique_beneficiaries=("Beneficiary_CUSTOMER_NUMBER", "nunique"),
+            customer_unique_beneficiaries=("customer_beneficiary_for_count", "nunique"),
         )
         .reset_index()
     )
@@ -389,7 +411,7 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
     trx = trx.merge(device_customer_count, on="Device_ID_Hash", how="left")
     trx = trx.merge(ip_customer_count, on="IP_Address_Proxy", how="left")
     trx = trx.merge(beneficiary_customer_count, on="Beneficiary_CUSTOMER_NUMBER", how="left")
-    trx.loc[trx["Beneficiary_CUSTOMER_NUMBER"].eq("NO_BENEFICIARY"), "beneficiary_customer_count"] = 0
+    trx.loc[trx["beneficiary_is_customer"].eq(0), "beneficiary_customer_count"] = 0
 
     first_device_seen = trx.groupby(["CUSTOMER_NUMBER", "Device_ID_Hash"])["TRANS_DATE"].transform("min")
     first_ip_seen = trx.groupby(["CUSTOMER_NUMBER", "IP_Address_Proxy"])["TRANS_DATE"].transform("min")
@@ -398,7 +420,7 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
     trx["is_new_device_after_history"] = (has_history & trx["TRANS_DATE"].eq(first_device_seen)).astype(int)
     trx["is_new_ip_after_history"] = (has_history & trx["TRANS_DATE"].eq(first_ip_seen)).astype(int)
     trx["is_new_beneficiary_after_history"] = (
-        has_history & trx["TRANS_DATE"].eq(first_beneficiary_seen) & ~trx["Beneficiary_CUSTOMER_NUMBER"].eq("NO_BENEFICIARY")
+        has_history & trx["TRANS_DATE"].eq(first_beneficiary_seen) & trx["beneficiary_is_customer"].eq(1)
     ).astype(int)
 
     trx = trx.merge(activity_daily, on=["CUSTOMER_NUMBER", "TRANS_DATE"], how="left")
@@ -424,7 +446,10 @@ def build_features(tables: dict[str, pd.DataFrame], activity_daily: pd.DataFrame
 
     trx["credit_utilization"] = _safe_divide(trx["OUTSTANDING_BALANCE"], trx["LIMIT_AMT"], default=0).clip(0, 5)
     trx["amount_vs_ca_balance"] = _safe_divide(trx["TRANS_AMOUNT"], trx["AVG_CA_BALANCE"], default=10).clip(0, 100)
+    trx["max_overdue_days"] = trx[["OVERDUE_LENDING", "OVERDUE_CREDIT"]].max(axis=1).clip(lower=0)
+    trx["credit_risk_group_num"] = credit_risk_group(trx["max_overdue_days"])
     trx[MODEL_FEATURES] = trx[MODEL_FEATURES].replace([np.inf, -np.inf], np.nan).fillna(0)
+    trx = trx.drop(columns=["customer_beneficiary_for_count"], errors="ignore")
     return trx
 
 
@@ -457,9 +482,15 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
     cashout_vs_balance = result["amount_vs_ca_balance"].ge(thresholds["cashout_vs_balance_ratio"]) & result["is_cashout_flow"].eq(1)
     shared_device = result["device_customer_count"].ge(thresholds["shared_device_customer_count"])
     shared_ip = result["ip_customer_count"].ge(thresholds["shared_ip_customer_count"])
-    shared_beneficiary = result["beneficiary_customer_count"].ge(thresholds["shared_beneficiary_customer_count"])
+    shared_beneficiary = result["beneficiary_is_customer"].eq(1) & result["beneficiary_customer_count"].ge(thresholds["shared_beneficiary_customer_count"])
     late_activity = result["late_stage_activity_count"].gt(0) | result["auth_or_account_activity_count"].gt(0)
     nighttime_access = result["is_night_hour"].eq(1) | result["night_activity_count"].gt(0)
+    merchant_without_customer_beneficiary = (
+        result["has_no_customer_beneficiary"].eq(1)
+        & result["merchant_internal_credit_flag"].eq(1)
+        & (high_amount | daily_amount_burst | nighttime_access)
+    )
+    elevated_credit_context = result["max_overdue_days"].ge(30) & (high_amount | cashout_vs_balance | daily_burst)
 
     result["branch_account_takeover_score"] = np.clip(
         22 * result["is_new_device_after_history"]
@@ -494,6 +525,13 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
         0,
         100,
     )
+    result["branch_unauthorized_transfer_score"] = np.clip(
+        result["branch_unauthorized_transfer_score"]
+        + 8 * merchant_without_customer_beneficiary.astype(int)
+        + 6 * elevated_credit_context.astype(int),
+        0,
+        100,
+    )
 
     branch_cols = ["branch_account_takeover_score", "branch_unauthorized_transfer_score", "branch_aml_network_score"]
     result["max_branch_score"] = result[branch_cols].max(axis=1)
@@ -522,6 +560,9 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
         ("Thiết bị dùng chung bởi nhiều khách hàng", shared_device),
         ("IP dùng chung bởi nhiều khách hàng", shared_ip),
         ("Người thụ hưởng nhận tiền từ nhiều khách hàng", shared_beneficiary),
+        ("Beneficiary không phải khách hàng cá nhân; cần phân tích theo merchant/loại giao dịch", result["has_no_customer_beneficiary"].eq(1) & result["merchant_wallet_or_qr_flag"].eq(1) & high_amount),
+        ("Merchant nội bộ/tín dụng không có customer beneficiary và có tín hiệu bất thường", merchant_without_customer_beneficiary),
+        ("Khách hàng có overdue tín dụng cao, cần xem như bối cảnh rủi ro bổ sung", elevated_credit_context),
         ("Giao dịch chuyển khoản ra ngoài ngân hàng", result["is_external_transfer"].eq(1)),
         ("Giao dịch số tròn giá trị cao", result["is_round_high_amount"].eq(1)),
         ("Hoạt động digital ở giai đoạn muộn trong cùng ngày", late_activity),
@@ -626,6 +667,8 @@ def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd
     )
     valid_pred = valid_score >= thresholds["high_min_probability"]
     precision, recall, f1, _ = precision_recall_fscore_support(y_valid, valid_pred, average="binary", zero_division=0)
+    tn, fp, fn, tp = confusion_matrix(y_valid, valid_pred).ravel()
+    false_positive_rate = fp / (fp + tn) if (fp + tn) else 0.0
     metrics = {
         "model_type": "RandomForestClassifier",
         "target": "rule_fraud_label generated from root-cause rule score",
@@ -637,6 +680,13 @@ def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd
         "validation_precision_at_high_threshold": float(precision),
         "validation_recall_at_high_threshold": float(recall),
         "validation_f1_at_high_threshold": float(f1),
+        "validation_false_positive_rate_at_high_threshold": float(false_positive_rate),
+        "validation_confusion_matrix_at_high_threshold": {
+            "true_negative": int(tn),
+            "false_positive": int(fp),
+            "false_negative": int(fn),
+            "true_positive": int(tp),
+        },
         "thresholds": thresholds,
         "weak_label_note": "Metrics are measured against rule-derived weak labels, not confirmed fraud labels.",
     }
@@ -978,6 +1028,13 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 7. Chia band và hành động vận hành: Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold.
 8. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
 
+Xử lý nghiệp vụ bổ sung:
+
+- `Beneficiary_CUSTOMER_NUMBER` bằng 0/0.0/NaN không được xem là node khách hàng trong mạng lưới money mule. Pipeline tách nhóm này thành non-customer/merchant beneficiary và phân tích tiếp bằng `Merchant_ID_Masked`.
+- Các merchant như ví điện tử, QR, telco, utility thường không có customer beneficiary cụ thể; nhóm này không bị coi là missing data mặc định.
+- Nếu merchant nội bộ/tín dụng không có customer beneficiary nhưng đi kèm số tiền, giờ hoặc activity bất thường, pipeline đưa vào reason code để kiểm tra thêm.
+- Overdue lending/credit được gom thành nhóm rủi ro tín dụng 1-5 theo số ngày quá hạn để bổ sung bối cảnh khách hàng tốt/xấu.
+
 ## 5. Kết quả chính
 
 - High/Critical transactions: {high_critical:,}.
@@ -1010,8 +1067,11 @@ Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 - Schema/data quality checks.
 - Prevention coverage against rule-derived labels.
 - Protected amount và số giao dịch được Block/Step-up.
+- Confusion matrix, recall, precision và false-positive rate theo weak label.
 - Kiểm tra top-risk có reason codes rõ ràng.
 - Chuẩn bị cơ chế nhận feedback từ investigator để hiệu chỉnh threshold/model sau này.
+
+Theo định hướng giảm thiểu rủi ro, threshold đang ưu tiên bắt được nhiều giao dịch weak-fraud hơn, tức recall/prevention coverage được ưu tiên trước; false-positive rate vẫn được theo dõi để không làm phiền khách hàng tốt quá mức.
 
 ## 7. Gợi ý vận hành thực tế
 

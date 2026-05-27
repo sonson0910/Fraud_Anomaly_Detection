@@ -46,6 +46,24 @@ def build_notebook(output_path: Path) -> None:
             "- xuất được human-readable reason cho từng dự báo.\n\n"
             "Do không có confirmed fraud label, notebook tạo weak label từ root-cause rules, rồi huấn luyện supervised prevention model để quyết định Allow / Monitor / Step-up / Block."
         ),
+        nbf.v4.new_markdown_cell(
+            "## 2.1 Final 4-Phase Flow\n\n"
+            "**Phase 1 - Data Foundation & Feature Engineering**\n\n"
+            "1. Data Cleaning: chuẩn hóa schema, xử lý beneficiary/merchant, aggregate activity log, ghép product snapshots.\n"
+            "2. Four Baseline Metrics: Transactional, Financial, Environmental, Behavioral.\n"
+            "3. Customer 360 Feature Extraction: rolling window 30/60/90 ngày và baseline một dòng cho mỗi khách hàng.\n\n"
+            "**Phase 2 - EDA, Thresholding & Auto-Labeling**\n\n"
+            "4. Baseline EDA: lift chart, heatmap, network exposure, Customer 360 risk map.\n"
+            "5. IQR Thresholding: `Q3 + 1.5 * IQR`.\n"
+            "6. Dynamic Rule Engine: Account Takeover, Unauthorized Transfer, AML/Mule Network.\n"
+            "7. Risk-Scoring & Auto-Labeling: tạo `rule_fraud_label` weak supervision.\n\n"
+            "**Phase 3 - Machine Learning & Hybrid Check**\n\n"
+            "8. ML Training: RandomForest học weak label, theo dõi recall, precision và false-positive rate.\n"
+            "9. Hybrid Matrix: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Watchlist, No-alert = Allow.\n\n"
+            "**Phase 4 - Deployment, Dashboard & xAI**\n\n"
+            "10. Business Dashboard: prevention impact, protected amount, Customer 360, case review.\n"
+            "11. xAI: reason codes + SHAP surrogate giải thích final hybrid prevention score."
+        ),
         nbf.v4.new_markdown_cell("## 3. Data Overview And Schema Check"),
         nbf.v4.new_code_cell(
             "tables = load_reference_tables(RAW_DIR)\n"
@@ -114,6 +132,7 @@ def build_notebook(output_path: Path) -> None:
             "customers = pd.read_csv(OUTPUT_DIR / 'customer_risk_summary.csv')\n"
             "customer_360 = pd.read_csv(OUTPUT_DIR / 'customer_360_baseline.csv')\n"
             "root_cause = pd.read_csv(OUTPUT_DIR / 'root_cause_summary.csv')\n"
+            "insights = pd.read_csv(OUTPUT_DIR / 'insight_summary.csv')\n"
             "risk.head()"
         ),
         nbf.v4.new_code_cell(
@@ -149,7 +168,21 @@ def build_notebook(output_path: Path) -> None:
             "plt.title('Monthly stability backtest on 2019 data')\n"
             "plt.tight_layout()"
         ),
-        nbf.v4.new_markdown_cell("## 10. Explainability Examples"),
+        nbf.v4.new_markdown_cell(
+            "## 10. Data-Driven EDA Insights\n\n"
+            "Các insight này được sinh từ scored population sau khi pipeline đọc dữ liệu thật. "
+            "Mục tiêu là chứng minh framework không chỉ vẽ biểu đồ đơn giản, mà tìm được mối liên hệ giữa baseline, root cause, hybrid decision và business action."
+        ),
+        nbf.v4.new_code_cell("insights"),
+        nbf.v4.new_code_cell(
+            "from IPython.display import Image, display\n"
+            "for filename in insights['linked_figure'].dropna().unique():\n"
+            "    path = OUTPUT_DIR / 'figures' / filename\n"
+            "    if path.exists():\n"
+            "        print(filename)\n"
+            "        display(Image(filename=str(path)))"
+        ),
+        nbf.v4.new_markdown_cell("## 11. Explainability Examples"),
         nbf.v4.new_code_cell(
             "risk[[\n"
             "    'transaction_row_id', 'CUSTOMER_NUMBER', 'TRANS_DATE', 'TRANS_HOUR', 'TRANS_LV1', 'TRANS_LV2',\n"
@@ -158,16 +191,17 @@ def build_notebook(output_path: Path) -> None:
             "]].head(10)"
         ),
         nbf.v4.new_markdown_cell(
-            "## 11. Hybrid Decision Matrix\n\n"
+            "## 12. Hybrid Decision Matrix And Risk Band Policy\n\n"
             "Ma trận lai giúp biến Rule + ML thành hành động thực tế. Đây là phần quan trọng để bài không chỉ dừng ở phát hiện, mà chuyển sang prevention operation."
         ),
+        nbf.v4.new_code_cell("pd.Series(metrics['risk_band_policy'])"),
         nbf.v4.new_code_cell(
             "risk['hybrid_decision'].value_counts()"
         ),
         nbf.v4.new_code_cell(
             "pd.crosstab(risk['hybrid_decision'], risk['prevention_action'])"
         ),
-        nbf.v4.new_markdown_cell("## 12. SHAP xAI Surrogate"),
+        nbf.v4.new_markdown_cell("## 13. SHAP xAI Surrogate"),
         nbf.v4.new_code_cell(
             "# Run once after the main pipeline if SHAP files do not exist:\n"
             "# !python src/xai_shap_engine.py\n"
@@ -177,7 +211,7 @@ def build_notebook(output_path: Path) -> None:
         ),
         nbf.v4.new_code_cell("shap_local.head(10)"),
         nbf.v4.new_markdown_cell(
-            "## 13. Evaluation With Weak Labels\n\n"
+            "## 14. Evaluation With Weak Labels\n\n"
             "Vì dữ liệu không có confirmed fraud label, các metric dưới đây được đo theo `rule_fraud_label`. "
             "Đây là weak label sinh từ rule nghiệp vụ, không phải nhãn investigator xác nhận. Cách trình bày đúng là: "
             "framework hiện đo khả năng model học lại và vận hành hóa rule engine, đồng thời chuẩn bị feedback loop "
@@ -197,15 +231,14 @@ def build_notebook(output_path: Path) -> None:
         nbf.v4.new_code_cell(
             "pd.DataFrame(metrics['top_surrogate_features'].items(), columns=['feature', 'importance']).head(15)"
         ),
-        nbf.v4.new_markdown_cell("## 14. Report Figures"),
+        nbf.v4.new_markdown_cell("## 15. Report Figures"),
         nbf.v4.new_code_cell(
-            "from IPython.display import Image, display\n"
             "for path in sorted((OUTPUT_DIR / 'figures').glob('*.png')):\n"
             "    print(path.name)\n"
             "    display(Image(filename=str(path)))"
         ),
         nbf.v4.new_markdown_cell(
-            "## 15. Live Demo And Slide Deck\n\n"
+            "## 16. Live Demo And Slide Deck\n\n"
             "Sau khi chạy pipeline, có thể demo bằng CLI hoặc Streamlit:\n\n"
             "```bash\n"
             "python src/customer_risk_advisor.py --top-critical 3\n"

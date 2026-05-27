@@ -1,51 +1,51 @@
 {
   "method": "RandomForestRegressor surrogate + SHAP TreeExplainer",
-  "target": "Supervised prevention risk_score_0_100 learned from rule-derived weak labels",
+  "target": "Final hybrid prevention risk_score_0_100 after the Rule + ML decision matrix",
   "training_rows": 60000,
   "explained_rows": 3000,
-  "surrogate_mae": 1.1917626926084854,
-  "surrogate_correlation": 0.9980971643072131,
+  "surrogate_mae": 1.2754541333397356,
+  "surrogate_correlation": 0.9914538778595731,
   "top_features": [
     {
-      "feature": "is_external_transfer",
-      "mean_abs_shap": 21.79362633733767
-    },
-    {
       "feature": "amount_vs_iqr_upper",
-      "mean_abs_shap": 7.2077371247783075
+      "mean_abs_shap": 18.788271611525325
     },
     {
-      "feature": "is_new_beneficiary_after_history",
-      "mean_abs_shap": 6.752586684811971
-    },
-    {
-      "feature": "night_activity_count",
-      "mean_abs_shap": 4.779447719194387
-    },
-    {
-      "feature": "daily_count_vs_iqr_upper",
-      "mean_abs_shap": 1.0289609212519863
-    },
-    {
-      "feature": "uses_sms",
-      "mean_abs_shap": 1.0136060717300066
-    },
-    {
-      "feature": "daily_amount_ratio",
-      "mean_abs_shap": 0.774029733598606
-    },
-    {
-      "feature": "amount_zscore_customer",
-      "mean_abs_shap": 0.7041350283704638
+      "feature": "is_external_transfer",
+      "mean_abs_shap": 9.149410852734762
     },
     {
       "feature": "daily_amount_vs_iqr_upper",
-      "mean_abs_shap": 0.5962528194133293
+      "mean_abs_shap": 4.490438694491056
     },
     {
-      "feature": "daily_external_transfer_count",
-      "mean_abs_shap": 0.5886712372772976
+      "feature": "night_activity_count",
+      "mean_abs_shap": 4.058350945282636
+    },
+    {
+      "feature": "daily_count_vs_iqr_upper",
+      "mean_abs_shap": 2.4777225568826124
+    },
+    {
+      "feature": "is_new_beneficiary_after_history",
+      "mean_abs_shap": 2.0598745546939408
+    },
+    {
+      "feature": "amount_vs_ca_balance",
+      "mean_abs_shap": 1.315827125755764
+    },
+    {
+      "feature": "is_new_device_after_history",
+      "mean_abs_shap": 0.8446339260270326
+    },
+    {
+      "feature": "uses_sms",
+      "mean_abs_shap": 0.8238152416551671
+    },
+    {
+      "feature": "daily_activity_count",
+      "mean_abs_shap": 0.4706104180592225
     }
   ],
-  "note": "This explains the supervised prevention model trained on weak labels, not confirmed fraud labels."
+  "note": "This explains the final hybrid prevention score with SHAP on a tree surrogate. The underlying labels are rule-derived weak labels, not confirmed fraud labels."
 }

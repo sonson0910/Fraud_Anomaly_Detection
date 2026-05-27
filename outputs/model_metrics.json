@@ -4,10 +4,10 @@
   "ground_truth_available": false,
   "evaluation_note": "The provided real data has no confirmed fraud labels. The workflow therefore creates rule-derived weak labels from root-cause banking logic, trains a supervised prevention model on those labels, and reports prevention coverage against weak labels rather than confirmed fraud accuracy.",
   "pipeline_config": {
-    "raw_dir": "Processed_Data",
-    "output_dir": "outputs",
-    "figures_dir": "outputs/figures",
-    "report_dir": "report",
+    "raw_dir": "/Users/sonson/Documents/code/support/G'Contest/Processed_Data",
+    "output_dir": "/Users/sonson/Documents/code/support/G'Contest/outputs",
+    "figures_dir": "/Users/sonson/Documents/code/support/G'Contest/outputs/figures",
+    "report_dir": "/Users/sonson/Documents/code/support/G'Contest/report",
     "chunksize": 1000000,
     "random_state": 20260524,
     "supervised_train_sample": 260000,
@@ -107,14 +107,21 @@
       "Behavioral"
     ]
   },
+  "risk_band_policy": {
+    "Critical": "Rule and ML both alert, immediate Block/Hold.",
+    "High": "Rule-only or ML-only alert, Step-up/eKYC or special watchlist.",
+    "Medium": "IQR/model/rule early warning, enhanced monitoring.",
+    "Low": "No alert, allow while baseline continues to update.",
+    "note": "Bands are assigned after the cause-first rule engine and hybrid Rule + ML matrix so each band maps to a concrete bank control."
+  },
   "supervised_model_metrics": {
     "model_type": "RandomForestClassifier",
     "target": "rule_fraud_label generated from root-cause rule score",
     "training_rows": 195000,
     "validation_rows": 65000,
     "positive_train_rate": 0.3333282051282051,
-    "validation_roc_auc": 0.9999985589459961,
-    "validation_pr_auc": 0.9999971282642279,
+    "validation_roc_auc": 0.9999996165709968,
+    "validation_pr_auc": 0.9999992337843129,
     "validation_precision_at_high_threshold": 1.0,
     "validation_recall_at_high_threshold": 0.8999861540591684,
     "validation_f1_at_high_threshold": 0.9473607501153837,
@@ -126,150 +133,188 @@
       "true_positive": 19500
     },
     "thresholds": {
-      "medium_min_probability": 0.853543418387731,
-      "high_min_probability": 0.9738066469527489,
-      "critical_min_probability": 0.9999564859582335
+      "medium_min_probability": 0.9243469231462648,
+      "high_min_probability": 0.9855639302089569,
+      "critical_min_probability": 0.999998945192605
     },
     "weak_label_note": "Metrics are measured against rule-derived weak labels, not confirmed fraud labels."
   },
   "prevention_impact": {
-    "blocked_transactions": 286326,
-    "step_up_transactions": 31654,
-    "enhanced_monitoring_transactions": 375861,
-    "allow_transactions": 724189,
-    "rule_and_ml_alert_transactions": 286326,
-    "rule_only_alert_transactions": 31654,
-    "ml_only_alert_transactions": 115940,
-    "no_alert_transactions": 984110,
-    "protected_amount_block_or_step_up": 6935381708289.3,
-    "blocked_amount": 6285614192634.0,
-    "step_up_amount": 649767515655.3,
-    "rule_labeled_fraud_transactions": 317980,
-    "rule_labeled_fraud_amount": 6935381708289.3,
+    "blocked_transactions": 79772,
+    "step_up_transactions": 8367,
+    "enhanced_monitoring_transactions": 409057,
+    "allow_transactions": 920834,
+    "rule_and_ml_alert_transactions": 79772,
+    "rule_only_alert_transactions": 8367,
+    "ml_only_alert_transactions": 21016,
+    "no_alert_transactions": 1308875,
+    "protected_amount_block_or_step_up": 3418789194096.0,
+    "blocked_amount": 3092243787733.0,
+    "step_up_amount": 326545406363.0,
+    "rule_labeled_fraud_transactions": 88139,
+    "rule_labeled_fraud_amount": 3418789194096.0,
     "prevention_coverage_against_rule_labels": 1.0,
-    "blocked_coverage_against_rule_labels": 0.9004528586703566,
+    "blocked_coverage_against_rule_labels": 0.9050704001633783,
     "step_up_or_block_precision_against_rule_labels": 1.0,
     "note": "Coverage is measured against rule-derived weak fraud labels, not confirmed fraud outcomes."
   },
+  "data_driven_insights": [
+    {
+      "title": "Root-cause concentration",
+      "evidence": "Unauthorized transfer / capital outflow chiếm 69.7% số giao dịch High/Critical.",
+      "business_meaning": "Review queue không nên xem toàn bộ case như nhau; nhánh nguyên nhân lớn nhất cần playbook riêng.",
+      "linked_figure": "root_cause_hybrid_heatmap.png"
+    },
+    {
+      "title": "Personalized IQR threshold matters",
+      "evidence": "Giao dịch vượt ngưỡng IQR cá nhân hóa có High/Critical rate 60.8%, lift 57.7x so với nhóm không vượt.",
+      "business_meaning": "Ngưỡng không còn là số cố định toàn ngân hàng; nó phản ánh thói quen riêng của từng khách hàng.",
+      "linked_figure": "iqr_breach_lift.png"
+    },
+    {
+      "title": "Network exposure needs a second signal",
+      "evidence": "Nhóm shared IP/device/beneficiary top 1% có High/Critical rate 7.7% so với baseline 7.7%; lift 1.0x.",
+      "business_meaning": "Shared IP/device/beneficiary không nên tự động Block; cần kết hợp với cash-out, IQR breach hoặc repeated external transfer.",
+      "linked_figure": "network_exposure_bubble.png"
+    },
+    {
+      "title": "Overdue is context, not a fraud label",
+      "evidence": "Nhóm credit-risk group 3-5 có High/Critical rate 7.4%, nhóm 1-2 là 7.7%.",
+      "business_meaning": "Overdue không tự kết luận fraud, nhưng giúp ưu tiên kiểm soát khi đi kèm cash-out hoặc IQR breach.",
+      "linked_figure": "customer360_risk_heatmap.png"
+    },
+    {
+      "title": "Risk is time-patterned",
+      "evidence": "Khung Mon lúc 16h có High/Critical rate 9.3%.",
+      "business_meaning": "Step-up hoặc review staffing có thể ưu tiên khung giờ/ngày có risk-rate cao hơn.",
+      "linked_figure": "time_risk_heatmap.png"
+    },
+    {
+      "title": "Hybrid matrix changes the banding logic",
+      "evidence": "Rule+ML Block/Hold: 79,772; Rule-only Step-up/eKYC: 8,367; ML-only Watchlist: 21,016.",
+      "business_meaning": "Risk band cuối được quyết định bằng ma trận vận hành Rule + ML để gắn trực tiếp với hành động kiểm soát.",
+      "linked_figure": "hybrid_decision_matrix.png"
+    }
+  ],
   "activity_no_late_stage_threshold_p90": 4,
   "risk_band_distribution": {
-    "Low": 730831,
-    "Medium": 284933,
-    "High": 369892,
-    "Critical": 32374
+    "Low": 920834,
+    "Medium": 388041,
+    "High": 29383,
+    "Critical": 79772
   },
   "root_cause_distribution": {
-    "Account takeover / identity compromise": 272657,
-    "Unauthorized transfer / capital outflow": 127772,
-    "AML network / mule-account pattern": 1837
+    "Unauthorized transfer / capital outflow": 76085,
+    "Account takeover / identity compromise": 32510,
+    "AML network / mule-account pattern": 560
   },
   "monthly_stability": [
     {
       "month": "2019-01",
       "transaction_count": 3203,
-      "avg_risk_score": 49.157018,
-      "p95_risk_score": 99.871621,
-      "medium_plus_rate": 0.368405,
-      "high_critical_rate": 0.212613,
+      "avg_risk_score": 44.095527,
+      "p95_risk_score": 99.857003,
+      "medium_plus_rate": 0.325944,
+      "high_critical_rate": 0.096784,
       "avg_amount": 17308237.068061
     },
     {
       "month": "2019-02",
       "transaction_count": 6249,
-      "avg_risk_score": 45.554926,
-      "p95_risk_score": 99.921635,
-      "medium_plus_rate": 0.358297,
-      "high_critical_rate": 0.211394,
+      "avg_risk_score": 41.994502,
+      "p95_risk_score": 98.654867,
+      "medium_plus_rate": 0.290606,
+      "high_critical_rate": 0.067851,
       "avg_amount": 8954312.495439
     },
     {
       "month": "2019-03",
       "transaction_count": 16440,
-      "avg_risk_score": 49.183359,
-      "p95_risk_score": 99.951856,
-      "medium_plus_rate": 0.396837,
-      "high_critical_rate": 0.235949,
+      "avg_risk_score": 44.410213,
+      "p95_risk_score": 99.34801,
+      "medium_plus_rate": 0.320681,
+      "high_critical_rate": 0.074209,
       "avg_amount": 10814909.465815
     },
     {
       "month": "2019-04",
       "transaction_count": 29846,
-      "avg_risk_score": 52.494521,
-      "p95_risk_score": 99.962885,
-      "medium_plus_rate": 0.428902,
-      "high_critical_rate": 0.259834,
+      "avg_risk_score": 45.550997,
+      "p95_risk_score": 99.595911,
+      "medium_plus_rate": 0.32862,
+      "high_critical_rate": 0.075286,
       "avg_amount": 10724608.320612
     },
     {
       "month": "2019-05",
       "transaction_count": 52403,
-      "avg_risk_score": 56.709619,
-      "p95_risk_score": 99.973139,
-      "medium_plus_rate": 0.487319,
-      "high_critical_rate": 0.285881,
+      "avg_risk_score": 46.885412,
+      "p95_risk_score": 99.761702,
+      "medium_plus_rate": 0.337347,
+      "high_critical_rate": 0.078431,
       "avg_amount": 10692997.862012
     },
     {
       "month": "2019-06",
       "transaction_count": 74970,
-      "avg_risk_score": 53.55994,
-      "p95_risk_score": 99.954851,
-      "medium_plus_rate": 0.406376,
-      "high_critical_rate": 0.220955,
+      "avg_risk_score": 44.167264,
+      "p95_risk_score": 99.197368,
+      "medium_plus_rate": 0.316166,
+      "high_critical_rate": 0.071869,
       "avg_amount": 9585414.623505
     },
     {
       "month": "2019-07",
       "transaction_count": 107564,
-      "avg_risk_score": 51.691409,
-      "p95_risk_score": 99.903389,
-      "medium_plus_rate": 0.35431,
-      "high_critical_rate": 0.168858,
+      "avg_risk_score": 42.565832,
+      "p95_risk_score": 98.804613,
+      "medium_plus_rate": 0.306859,
+      "high_critical_rate": 0.06941,
       "avg_amount": 9216334.589826
     },
     {
       "month": "2019-08",
       "transaction_count": 142691,
-      "avg_risk_score": 59.104472,
-      "p95_risk_score": 99.980758,
-      "medium_plus_rate": 0.505967,
-      "high_critical_rate": 0.300608,
+      "avg_risk_score": 47.853462,
+      "p95_risk_score": 99.758504,
+      "medium_plus_rate": 0.35108,
+      "high_critical_rate": 0.077209,
       "avg_amount": 8448851.29603
     },
     {
       "month": "2019-09",
       "transaction_count": 172971,
-      "avg_risk_score": 59.514205,
-      "p95_risk_score": 99.981663,
-      "medium_plus_rate": 0.508883,
-      "high_critical_rate": 0.30308,
+      "avg_risk_score": 48.096763,
+      "p95_risk_score": 99.850456,
+      "medium_plus_rate": 0.35913,
+      "high_critical_rate": 0.078117,
       "avg_amount": 8365298.507767
     },
     {
       "month": "2019-10",
       "transaction_count": 221976,
-      "avg_risk_score": 60.035201,
-      "p95_risk_score": 99.980525,
-      "medium_plus_rate": 0.511916,
-      "high_critical_rate": 0.300271,
+      "avg_risk_score": 48.085868,
+      "p95_risk_score": 99.857807,
+      "medium_plus_rate": 0.356241,
+      "high_critical_rate": 0.078734,
       "avg_amount": 8749323.529752
     },
     {
       "month": "2019-11",
       "transaction_count": 266028,
-      "avg_risk_score": 59.621844,
-      "p95_risk_score": 99.977335,
-      "medium_plus_rate": 0.505466,
-      "high_critical_rate": 0.296228,
+      "avg_risk_score": 47.899749,
+      "p95_risk_score": 99.760729,
+      "medium_plus_rate": 0.355914,
+      "high_critical_rate": 0.076748,
       "avg_amount": 8331297.971495
     },
     {
       "month": "2019-12",
       "transaction_count": 323689,
-      "avg_risk_score": 59.27878,
-      "p95_risk_score": 99.97987,
-      "medium_plus_rate": 0.500545,
-      "high_critical_rate": 0.303208,
+      "avg_risk_score": 48.166996,
+      "p95_risk_score": 99.88277,
+      "medium_plus_rate": 0.367306,
+      "high_critical_rate": 0.078986,
       "avg_amount": 8484079.005082
     }
   ],
@@ -277,58 +322,58 @@
     {
       "quarter": "2019Q1",
       "transaction_count": 25892,
-      "avg_risk_score": 48.304383,
-      "p95_risk_score": 99.939716,
-      "medium_plus_rate": 0.384018,
-      "high_critical_rate": 0.227136
+      "avg_risk_score": 43.788255,
+      "p95_risk_score": 99.453629,
+      "medium_plus_rate": 0.314074,
+      "high_critical_rate": 0.075467
     },
     {
       "quarter": "2019Q2",
       "transaction_count": 157219,
-      "avg_risk_score": 54.40751,
-      "p95_risk_score": 99.964126,
-      "medium_plus_rate": 0.437632,
-      "high_critical_rate": 0.249976
+      "avg_risk_score": 45.335939,
+      "p95_risk_score": 99.52181,
+      "medium_plus_rate": 0.32559,
+      "high_critical_rate": 0.074705
     },
     {
       "quarter": "2019Q3",
       "transaction_count": 423226,
-      "avg_risk_score": 57.387879,
-      "p95_risk_score": 99.974497,
-      "medium_plus_rate": 0.468615,
-      "high_critical_rate": 0.268133
+      "avg_risk_score": 46.609033,
+      "p95_risk_score": 99.673388,
+      "medium_plus_rate": 0.343131,
+      "high_critical_rate": 0.075598
     },
     {
       "quarter": "2019Q4",
       "transaction_count": 811693,
-      "avg_risk_score": 59.598078,
-      "p95_risk_score": 99.979248,
-      "medium_plus_rate": 0.505267,
-      "high_critical_rate": 0.300117
+      "avg_risk_score": 48.057221,
+      "p95_risk_score": 99.844329,
+      "medium_plus_rate": 0.360546,
+      "high_critical_rate": 0.078184
     }
   ],
   "stability_note": "The 2019 holdout-style stability check tracks monthly and quarterly review rates. Because only one calendar year is provided, this is a temporal robustness check, not a crisis-period backtest.",
   "review_queue": {
-    "medium_or_above_transactions": 687199,
-    "high_or_critical_transactions": 402266,
-    "critical_transactions": 32374,
-    "customers_with_high_or_critical": 38756
+    "medium_or_above_transactions": 497196,
+    "high_or_critical_transactions": 109155,
+    "critical_transactions": 79772,
+    "customers_with_high_or_critical": 27864
   },
   "top_surrogate_features": {
-    "is_external_transfer": 0.783933,
-    "amount_vs_iqr_upper": 0.076024,
-    "is_new_beneficiary_after_history": 0.059993,
-    "night_activity_count": 0.047958,
-    "uses_sms": 0.005067,
-    "daily_count_vs_iqr_upper": 0.003921,
-    "daily_amount_ratio": 0.003542,
-    "is_new_device_after_history": 0.002702,
-    "daily_activity_count": 0.002612,
-    "amount_zscore_customer": 0.002211,
-    "max_activity_no_same_day": 0.002097,
-    "is_new_ip_after_history": 0.001873,
-    "daily_amount_vs_iqr_upper": 0.001757,
-    "daily_external_transfer_count": 0.001481,
-    "is_night_hour": 0.000866
+    "is_external_transfer": 0.382901,
+    "amount_vs_iqr_upper": 0.256187,
+    "night_activity_count": 0.104675,
+    "daily_count_vs_iqr_upper": 0.085475,
+    "is_new_beneficiary_after_history": 0.045875,
+    "daily_amount_vs_iqr_upper": 0.044843,
+    "is_new_device_after_history": 0.032116,
+    "amount_vs_ca_balance": 0.017786,
+    "uses_sms": 0.009229,
+    "daily_activity_count": 0.009226,
+    "is_new_ip_after_history": 0.005933,
+    "daily_amount_ratio": 0.001879,
+    "is_night_hour": 0.001348,
+    "amount_zscore_customer": 0.000832,
+    "amount_vs_customer_p95": 0.000279
   }
 }

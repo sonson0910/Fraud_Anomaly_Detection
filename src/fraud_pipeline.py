@@ -12,6 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -633,9 +634,9 @@ def build_rule_score(df: pd.DataFrame, thresholds: dict[str, float]) -> pd.DataF
         existing = reasons[values]
         reasons[values] = np.where(existing == "", reason, existing + "; " + reason)
     result["rule_reasons"] = np.where(reasons == "", "Không có rule đơn lẻ vượt ngưỡng mạnh", reasons)
-    strong_single_branch = result["max_branch_score"].ge(85)
-    strong_multi_branch = result["active_branch_count"].ge(2) & result["rule_score_0_100"].ge(75)
-    result["rule_fraud_label"] = (result["rule_score_0_100"].ge(85) | strong_single_branch | strong_multi_branch).astype(int)
+    strong_single_branch = result["max_branch_score"].ge(95)
+    strong_multi_branch = result["active_branch_count"].ge(2) & result["rule_score_0_100"].ge(90)
+    result["rule_fraud_label"] = (result["rule_score_0_100"].ge(90) | strong_single_branch | strong_multi_branch).astype(int)
     result["weak_label_confidence"] = np.select(
         [result["rule_fraud_label"].eq(1), result["rule_score_0_100"].le(35)],
         ["fraud_by_rules", "clean_by_rules"],
@@ -713,8 +714,9 @@ def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd
     }
     all_x = result[MODEL_FEATURES].replace([np.inf, -np.inf], np.nan).fillna(0)
     result["model_fraud_probability"] = model.predict_proba(all_x)[:, 1]
-    result["risk_score_0_100"] = (result["model_fraud_probability"] * 100).clip(0, 100)
-    result["risk_band"] = np.select(
+    result["model_score_0_100"] = (result["model_fraud_probability"] * 100).clip(0, 100)
+    result["risk_score_0_100"] = result["model_score_0_100"]
+    result["model_risk_band"] = np.select(
         [
             result["model_fraud_probability"].ge(thresholds["critical_min_probability"]),
             result["model_fraud_probability"].ge(thresholds["high_min_probability"]),
@@ -751,11 +753,11 @@ def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd
     return result, model, metrics
 
 
-def build_surrogate_importance(df: pd.DataFrame, config: PipelineConfig) -> pd.Series:
+def build_surrogate_importance(df: pd.DataFrame, config: PipelineConfig, target_column: str = "risk_score_0_100") -> pd.Series:
     sample_size = min(config.surrogate_sample, len(df))
     sample = df.sample(sample_size, random_state=config.random_state)
     x = sample[MODEL_FEATURES].replace([np.inf, -np.inf], np.nan).fillna(0)
-    y = sample["risk_score_0_100"]
+    y = sample[target_column]
     model = RandomForestRegressor(
         n_estimators=80,
         max_depth=8,
@@ -797,7 +799,7 @@ def finalise_explanations(df: pd.DataFrame, feature_importance: pd.Series) -> pd
     result["top_reasons"] = result["rule_reasons"]
     result.loc[high_model, "top_reasons"] = result.loc[high_model, "top_reasons"] + "; " + model_hint
     result["rule_alert"] = result["rule_fraud_label"].eq(1).astype(int)
-    result["ml_alert"] = result["risk_band"].isin(["High", "Critical"]).astype(int)
+    result["ml_alert"] = result["model_risk_band"].isin(["High", "Critical"]).astype(int)
     result["hybrid_decision"] = np.select(
         [
             result["rule_alert"].eq(1) & result["ml_alert"].eq(1),
@@ -810,6 +812,54 @@ def finalise_explanations(df: pd.DataFrame, feature_importance: pd.Series) -> pd
             "ML-only alert: Special watchlist",
         ],
         default="No alert: Allow",
+    )
+    early_warning_count = (
+        result["amount_vs_iqr_upper"].ge(1.25).astype(int)
+        + result["daily_count_vs_iqr_upper"].ge(1.25).astype(int)
+        + result["daily_amount_vs_iqr_upper"].ge(1.25).astype(int)
+        + result["is_new_device_after_history"].eq(1).astype(int)
+        + result["is_new_ip_after_history"].eq(1).astype(int)
+    )
+    medium_signal = (
+        result["model_risk_band"].eq("Medium")
+        | result["rule_score_0_100"].between(75, 89, inclusive="both")
+        | early_warning_count.ge(2)
+    )
+    result["risk_band"] = np.select(
+        [
+            result["hybrid_decision"].eq("Rule+ML alert: Block/Hold"),
+            result["hybrid_decision"].isin(["Rule-only alert: Step-up/eKYC", "ML-only alert: Special watchlist"]),
+            medium_signal,
+        ],
+        ["Critical", "High", "Medium"],
+        default="Low",
+    )
+    severity = np.maximum(result["rule_score_0_100"], result["model_score_0_100"])
+    result["risk_score_0_100"] = np.select(
+        [
+            result["risk_band"].eq("Critical"),
+            result["risk_band"].eq("High"),
+            result["risk_band"].eq("Medium"),
+        ],
+        [
+            np.clip(np.maximum(severity, 90), 90, 100),
+            np.clip(np.maximum(severity, 75), 75, 89.99),
+            np.clip(np.maximum(severity * 0.85, 45), 45, 74.99),
+        ],
+        default=np.clip(severity * 0.6, 0, 44.99),
+    )
+    result["risk_band_policy"] = np.select(
+        [
+            result["risk_band"].eq("Critical"),
+            result["risk_band"].eq("High"),
+            result["risk_band"].eq("Medium"),
+        ],
+        [
+            "Critical = Rule and ML both alert, immediate Block/Hold",
+            "High = Rule-only or ML-only alert, Step-up or special watchlist",
+            "Medium = IQR/model/rule early warning, enhanced monitoring",
+        ],
+        default="Low = no alert, allow and continue baseline monitoring",
     )
     result["prevention_action"] = np.select(
         [
@@ -1040,6 +1090,114 @@ def build_time_stability(scores: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     return monthly, quarterly
 
 
+def _format_pct(value: float) -> str:
+    return f"{value:.1%}"
+
+
+def build_insight_summary(scores: pd.DataFrame) -> list[dict[str, Any]]:
+    scored = scores.copy()
+    scored["is_high_or_critical"] = scored["risk_band"].isin(["High", "Critical"])
+    insights: list[dict[str, Any]] = []
+
+    high_rate = float(scored["is_high_or_critical"].mean())
+    top_branch = (
+        scored.loc[scored["is_high_or_critical"]]
+        .groupby("primary_cause_branch")["transaction_row_id"]
+        .count()
+        .sort_values(ascending=False)
+    )
+    if not top_branch.empty:
+        top_branch_name = str(top_branch.index[0])
+        top_branch_share = float(top_branch.iloc[0] / max(1, int(scored["is_high_or_critical"].sum())))
+        insights.append(
+            {
+                "title": "Root-cause concentration",
+                "evidence": f"{top_branch_name} chiếm {_format_pct(top_branch_share)} số giao dịch High/Critical.",
+                "business_meaning": "Review queue không nên xem toàn bộ case như nhau; nhánh nguyên nhân lớn nhất cần playbook riêng.",
+                "linked_figure": "root_cause_hybrid_heatmap.png",
+            }
+        )
+
+    iqr_mask = scored["amount_vs_iqr_upper"].ge(1.0)
+    iqr_rate = float(scored.loc[iqr_mask, "is_high_or_critical"].mean()) if iqr_mask.any() else 0.0
+    non_iqr_rate = float(scored.loc[~iqr_mask, "is_high_or_critical"].mean()) if (~iqr_mask).any() else 0.0
+    lift = iqr_rate / non_iqr_rate if non_iqr_rate else 0.0
+    insights.append(
+        {
+            "title": "Personalized IQR threshold matters",
+            "evidence": f"Giao dịch vượt ngưỡng IQR cá nhân hóa có High/Critical rate {_format_pct(iqr_rate)}, lift {lift:.1f}x so với nhóm không vượt.",
+            "business_meaning": "Ngưỡng không còn là số cố định toàn ngân hàng; nó phản ánh thói quen riêng của từng khách hàng.",
+            "linked_figure": "iqr_breach_lift.png",
+        }
+    )
+
+    network_mask = (
+        scored["device_customer_count"].ge(scored["device_customer_count"].quantile(0.99))
+        | scored["ip_customer_count"].ge(scored["ip_customer_count"].quantile(0.99))
+        | (scored["beneficiary_is_customer"].eq(1) & scored["beneficiary_customer_count"].ge(scored["beneficiary_customer_count"].quantile(0.99)))
+    )
+    network_rate = float(scored.loc[network_mask, "is_high_or_critical"].mean()) if network_mask.any() else 0.0
+    baseline_rate = high_rate
+    network_lift = network_rate / baseline_rate if baseline_rate else 0.0
+    if network_lift >= 1.2:
+        network_title = "Shared infrastructure is a network-risk signal"
+        network_meaning = "AML/mule review nên nhìn cụm IP/device/beneficiary thay vì từng giao dịch đơn lẻ."
+    else:
+        network_title = "Network exposure needs a second signal"
+        network_meaning = "Shared IP/device/beneficiary không nên tự động Block; cần kết hợp với cash-out, IQR breach hoặc repeated external transfer."
+    insights.append(
+        {
+            "title": network_title,
+            "evidence": f"Nhóm shared IP/device/beneficiary top 1% có High/Critical rate {_format_pct(network_rate)} so với baseline {_format_pct(baseline_rate)}; lift {network_lift:.1f}x.",
+            "business_meaning": network_meaning,
+            "linked_figure": "network_exposure_bubble.png",
+        }
+    )
+
+    credit_mask = scored["credit_risk_group_num"].ge(3)
+    credit_rate = float(scored.loc[credit_mask, "is_high_or_critical"].mean()) if credit_mask.any() else 0.0
+    good_credit_rate = float(scored.loc[~credit_mask, "is_high_or_critical"].mean()) if (~credit_mask).any() else 0.0
+    insights.append(
+        {
+            "title": "Overdue is context, not a fraud label",
+            "evidence": f"Nhóm credit-risk group 3-5 có High/Critical rate {_format_pct(credit_rate)}, nhóm 1-2 là {_format_pct(good_credit_rate)}.",
+            "business_meaning": "Overdue không tự kết luận fraud, nhưng giúp ưu tiên kiểm soát khi đi kèm cash-out hoặc IQR breach.",
+            "linked_figure": "customer360_risk_heatmap.png",
+        }
+    )
+
+    hour_day = (
+        scored.groupby(["DAY_OF_WEEK", "TRANS_HOUR"], as_index=False)
+        .agg(transaction_count=("transaction_row_id", "size"), high_critical_rate=("is_high_or_critical", "mean"))
+    )
+    hour_day = hour_day.loc[hour_day["transaction_count"].ge(500)]
+    if not hour_day.empty:
+        peak = hour_day.sort_values("high_critical_rate", ascending=False).iloc[0]
+        insights.append(
+            {
+                "title": "Risk is time-patterned",
+                "evidence": f"Khung {peak.DAY_OF_WEEK} lúc {int(peak.TRANS_HOUR)}h có High/Critical rate {_format_pct(float(peak.high_critical_rate))}.",
+                "business_meaning": "Step-up hoặc review staffing có thể ưu tiên khung giờ/ngày có risk-rate cao hơn.",
+                "linked_figure": "time_risk_heatmap.png",
+            }
+        )
+
+    hybrid_counts = scored["hybrid_decision"].value_counts().to_dict()
+    insights.append(
+        {
+            "title": "Hybrid matrix changes the banding logic",
+            "evidence": (
+                f"Rule+ML Block/Hold: {hybrid_counts.get('Rule+ML alert: Block/Hold', 0):,}; "
+                f"Rule-only Step-up/eKYC: {hybrid_counts.get('Rule-only alert: Step-up/eKYC', 0):,}; "
+                f"ML-only Watchlist: {hybrid_counts.get('ML-only alert: Special watchlist', 0):,}."
+            ),
+            "business_meaning": "Risk band cuối được quyết định bằng ma trận vận hành Rule + ML để gắn trực tiếp với hành động kiểm soát.",
+            "linked_figure": "hybrid_decision_matrix.png",
+        }
+    )
+    return insights
+
+
 def write_figures(
     scores: pd.DataFrame,
     customer_360: pd.DataFrame,
@@ -1164,6 +1322,115 @@ def write_figures(
     plt.savefig(figures_dir / "rolling_window_baseline.png", dpi=180)
     plt.close()
 
+    enriched = scores.copy()
+    enriched["is_high_or_critical"] = enriched["risk_band"].isin(["High", "Critical"]).astype(int)
+
+    root_hybrid = pd.crosstab(enriched["primary_cause_branch"], enriched["hybrid_decision"])
+    plt.figure(figsize=(11, 5.5))
+    sns.heatmap(root_hybrid, annot=True, fmt=",.0f", cmap="YlOrRd", cbar_kws={"label": "Transactions"})
+    plt.title("Root-cause branch by hybrid Rule + ML decision")
+    plt.xlabel("Hybrid decision")
+    plt.ylabel("Root-cause branch")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "root_cause_hybrid_heatmap.png", dpi=180)
+    plt.close()
+
+    iqr_lift = pd.DataFrame(
+        {
+            "segment": ["Not above IQR", "Above personalized IQR"],
+            "high_critical_rate": [
+                enriched.loc[enriched["amount_vs_iqr_upper"].lt(1), "is_high_or_critical"].mean(),
+                enriched.loc[enriched["amount_vs_iqr_upper"].ge(1), "is_high_or_critical"].mean(),
+            ],
+            "avg_amount": [
+                enriched.loc[enriched["amount_vs_iqr_upper"].lt(1), "TRANS_AMOUNT"].mean(),
+                enriched.loc[enriched["amount_vs_iqr_upper"].ge(1), "TRANS_AMOUNT"].mean(),
+            ],
+        }
+    )
+    fig, ax1 = plt.subplots(figsize=(8, 5))
+    sns.barplot(data=iqr_lift, x="segment", y="high_critical_rate", color="#C46243", ax=ax1)
+    ax1.set_ylabel("High/Critical rate")
+    ax1.yaxis.set_major_formatter(FuncFormatter(lambda x, _pos: f"{x:.0%}"))
+    ax2 = ax1.twinx()
+    ax2.plot(iqr_lift["segment"], iqr_lift["avg_amount"], color="#2F6B8F", marker="o", linewidth=2, label="Avg amount")
+    ax2.set_ylabel("Average amount")
+    plt.title("Risk lift when transaction exceeds personalized IQR")
+    fig.tight_layout()
+    fig.savefig(figures_dir / "iqr_breach_lift.png", dpi=180)
+    plt.close(fig)
+
+    day_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    time_rate = (
+        enriched.groupby(["DAY_OF_WEEK", "TRANS_HOUR"], as_index=False)
+        .agg(transaction_count=("transaction_row_id", "size"), high_critical_rate=("is_high_or_critical", "mean"))
+    )
+    time_rate = time_rate.loc[time_rate["transaction_count"].ge(500)]
+    time_pivot = time_rate.pivot(index="DAY_OF_WEEK", columns="TRANS_HOUR", values="high_critical_rate").reindex(day_order)
+    plt.figure(figsize=(12, 4.8))
+    sns.heatmap(time_pivot, cmap="YlOrRd", cbar_kws={"label": "High/Critical rate"})
+    plt.title("High/Critical rate by day and transaction hour")
+    plt.xlabel("Transaction hour")
+    plt.ylabel("")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "time_risk_heatmap.png", dpi=180)
+    plt.close()
+
+    network = enriched.copy()
+    network["device_bucket"] = pd.cut(
+        network["device_customer_count"].clip(upper=network["device_customer_count"].quantile(0.995)),
+        bins=[0, 1, 2, 3, 5, np.inf],
+        labels=["1", "2", "3", "4-5", "6+"],
+        include_lowest=True,
+    )
+    network["ip_bucket"] = pd.cut(
+        network["ip_customer_count"].clip(upper=network["ip_customer_count"].quantile(0.995)),
+        bins=[0, 1, 2, 3, 5, np.inf],
+        labels=["1", "2", "3", "4-5", "6+"],
+        include_lowest=True,
+    )
+    network_summary = (
+        network.groupby(["device_bucket", "ip_bucket"], observed=True, as_index=False)
+        .agg(transaction_count=("transaction_row_id", "size"), high_critical_rate=("is_high_or_critical", "mean"))
+    )
+    plt.figure(figsize=(8, 5.5))
+    sns.scatterplot(
+        data=network_summary,
+        x="device_bucket",
+        y="ip_bucket",
+        size="transaction_count",
+        hue="high_critical_rate",
+        sizes=(80, 900),
+        palette="YlOrRd",
+        legend="brief",
+    )
+    plt.title("Network exposure: shared device/IP vs risk rate")
+    plt.xlabel("Customers per device bucket")
+    plt.ylabel("Customers per IP bucket")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "network_exposure_bubble.png", dpi=180)
+    plt.close()
+
+    credit = enriched.copy()
+    credit["device_exposure"] = pd.cut(
+        credit["device_customer_count"],
+        bins=[0, 1, 3, np.inf],
+        labels=["Single-customer device", "2-3 customers/device", "4+ customers/device"],
+        include_lowest=True,
+    )
+    credit_heat = (
+        credit.groupby(["credit_risk_group_num", "device_exposure"], observed=True)["is_high_or_critical"].mean().reset_index()
+    )
+    credit_pivot = credit_heat.pivot(index="credit_risk_group_num", columns="device_exposure", values="is_high_or_critical")
+    plt.figure(figsize=(8.5, 5))
+    sns.heatmap(credit_pivot, annot=True, fmt=".1%", cmap="YlOrRd", cbar_kws={"label": "High/Critical rate"})
+    plt.title("Customer 360: credit-risk group x device exposure")
+    plt.xlabel("")
+    plt.ylabel("Credit-risk group")
+    plt.tight_layout()
+    plt.savefig(figures_dir / "customer360_risk_heatmap.png", dpi=180)
+    plt.close()
+
 
 def build_metrics(
     scores: pd.DataFrame,
@@ -1178,6 +1445,7 @@ def build_metrics(
     feature_importance: pd.Series,
     monthly_stability: pd.DataFrame,
     quarterly_stability: pd.DataFrame,
+    insights: list[dict[str, Any]],
     config: PipelineConfig,
 ) -> dict[str, Any]:
     return {
@@ -1208,8 +1476,16 @@ def build_metrics(
             "iqr_formula": "Q3 + 1.5 * IQR",
             "baseline_groups": ["Transactional", "Financial", "Environmental", "Behavioral"],
         },
+        "risk_band_policy": {
+            "Critical": "Rule and ML both alert, immediate Block/Hold.",
+            "High": "Rule-only or ML-only alert, Step-up/eKYC or special watchlist.",
+            "Medium": "IQR/model/rule early warning, enhanced monitoring.",
+            "Low": "No alert, allow while baseline continues to update.",
+            "note": "Bands are assigned after the cause-first rule engine and hybrid Rule + ML matrix so each band maps to a concrete bank control.",
+        },
         "supervised_model_metrics": supervised_model_metrics,
         "prevention_impact": prevention_impact,
+        "data_driven_insights": insights,
         "activity_no_late_stage_threshold_p90": int(activity_no_threshold),
         "risk_band_distribution": scores["risk_band"].value_counts().reindex(["Low", "Medium", "High", "Critical"], fill_value=0).astype(int).to_dict(),
         "root_cause_distribution": root_cause.set_index("primary_cause_branch")["high_or_critical_transactions"].astype(int).to_dict(),
@@ -1239,6 +1515,10 @@ def write_report_outline(metrics: dict[str, Any], root_cause: pd.DataFrame, repo
         f"risk trung bình {row.avg_risk_score:.1f}/100."
         for row in root_cause.itertuples()
     )
+    insight_lines = "\n".join(
+        f"- {item['title']}: {item['evidence']} Ý nghĩa: {item['business_meaning']}"
+        for item in metrics.get("data_driven_insights", [])
+    )
     content = f"""# Final Report Outline - Fraud & Anomaly Detection
 
 ## 1. Bối cảnh và mục tiêu
@@ -1255,7 +1535,32 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 
 `ACTIVITY_NO` được dùng đúng ý nghĩa trong note mentor: số lớn hơn là hành động sau hơn, nên top 10% `ACTIVITY_NO` trong dữ liệu được xem là late-stage digital activity.
 
-## 3. Dữ liệu sử dụng
+## 3. Quy trình 4 giai đoạn và 11 bước
+
+Giai đoạn 1 - Data Foundation & Feature Engineering:
+
+1. Data Cleaning: đọc dữ liệu thật, chuẩn hóa schema, xử lý beneficiary/merchant, aggregate activity log và ghép product snapshots.
+2. Four Baseline Metrics: thiết lập 4 nhóm Transactional, Financial, Environmental, Behavioral.
+3. Customer 360 Feature Extraction: rolling window 30/60/90 ngày và một dòng baseline cho mỗi khách hàng.
+
+Giai đoạn 2 - EDA, Thresholding & Auto-Labeling:
+
+4. Baseline EDA: sinh insight/figure từ lift, heatmap, network exposure và Customer 360 để chọn ngưỡng có bằng chứng.
+5. IQR Thresholding: dùng `Q3 + 1.5 * IQR` ở cấp khách hàng/ngày/giao dịch.
+6. Dynamic Rule Engine: ba nhánh nguyên nhân Account Takeover, Unauthorized Transfer, AML/Mule Network.
+7. Risk-Scoring & Auto-Labeling: rule score tạo `rule_fraud_label` weak supervision.
+
+Giai đoạn 3 - Machine Learning & Hybrid Check:
+
+8. ML Training: RandomForest prevention model học từ weak label, theo dõi recall, precision và false-positive rate.
+9. Hybrid Matrix: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Watchlist, No-alert = Allow.
+
+Giai đoạn 4 - Deployment, Dashboard & xAI:
+
+10. Business Dashboard: Streamlit hiển thị prevention impact, protected amount, Customer 360, insight và case review.
+11. xAI: reason codes + SHAP surrogate giải thích final hybrid prevention score.
+
+## 4. Dữ liệu sử dụng
 
 - Nguồn: `Processed_Data/` và `G_Contest 26'_3rd round assignment.docx`.
 - Số giao dịch scored: {rows:,}.
@@ -1263,7 +1568,7 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 - Thời gian dữ liệu: {metrics["date_range"]["min"]} đến {metrics["date_range"]["max"]}.
 - Không dùng synthetic data, không dùng synthetic ground truth.
 
-## 4. Framework kỹ thuật
+## 5. Framework kỹ thuật
 
 1. Chuẩn hóa schema theo data dictionary, đồng thời xử lý khác biệt tên cột trong file thật như `TRANS_LV1`/`TRXN_LV1` và `LIMIT_AMT_CREDIT`/`LIMIT_AMT`.
 2. Tạo Customer 360 baseline: mỗi khách hàng một dòng với 4 nhóm Transactional, Financial, Environmental, Behavioral.
@@ -1271,7 +1576,7 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 4. Tạo threshold cá nhân hóa bằng P95, z-score và IQR (`Q3 + 1.5 * IQR`) cho số tiền, tần suất và tổng dòng tiền ngày.
 5. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
 6. Chấm điểm rule-based theo ba nhánh nguyên nhân.
-7. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
+7. Tạo `rule_fraud_label` từ rule score: rule score rất cao được xem là fraud weak label; rule score thấp rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
 8. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
 9. Dùng hybrid Rule + ML matrix để quyết định hành động: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Special Watchlist, No-alert = Allow.
 10. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
@@ -1285,7 +1590,7 @@ Xử lý nghiệp vụ bổ sung:
 - `outputs/customer_360_baseline.csv` là master data để giải thích baseline 360 độ và làm nền cho dashboard/report.
 - `outputs/figures/hybrid_decision_matrix.png`, `rolling_window_baseline.png` và `customer_360_credit_risk_group.png` minh họa rõ phần vận hành, rolling baseline và bối cảnh tín dụng.
 
-## 5. Kết quả chính
+## 6. Kết quả chính
 
 - High/Critical transactions: {high_critical:,}.
 - Critical transactions: {critical:,}.
@@ -1295,6 +1600,10 @@ Xử lý nghiệp vụ bổ sung:
 - Rule+ML Block/Hold transactions: {metrics["prevention_impact"]["rule_and_ml_alert_transactions"]:,}.
 - Rule-only Step-up/eKYC transactions: {metrics["prevention_impact"]["rule_only_alert_transactions"]:,}.
 - ML-only Special Watchlist transactions: {metrics["prevention_impact"]["ml_only_alert_transactions"]:,}.
+
+Data-driven insights:
+
+{insight_lines}
 
 Root-cause summary:
 
@@ -1306,7 +1615,7 @@ Monthly stability backtest:
 - `model_metrics.json` có bảng monthly/quarterly stability gồm transaction count, average risk, P95 risk và High/Critical rate.
 - Vì dữ liệu chỉ có năm 2019, đây là temporal robustness check, không phải crisis-period validation.
 
-## 6. Vì sao có supervised model khi dữ liệu không có nhãn fraud thật?
+## 7. Vì sao có supervised model khi dữ liệu không có nhãn fraud thật?
 
 Vì file thật không có confirmed fraud label, nhóm không báo rằng weak label là sự thật tuyệt đối. Quy trình đúng là:
 
@@ -1326,15 +1635,15 @@ Notebook vẫn có phần evaluation, nhưng evaluation ở đây là:
 
 Theo định hướng giảm thiểu rủi ro, threshold đang ưu tiên bắt được nhiều giao dịch weak-fraud hơn, tức recall/prevention coverage được ưu tiên trước; false-positive rate vẫn được theo dõi để không làm phiền khách hàng tốt quá mức.
 
-## 7. Gợi ý vận hành thực tế
+## 8. Gợi ý vận hành thực tế
 
-- Critical: Block/Hold near-real-time, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
-- High: step-up authentication trước khi cho giao dịch đi tiếp.
+- Critical: Rule+ML cùng báo, Block/Hold near-real-time, gọi xác minh khách hàng, kiểm tra device/IP/beneficiary.
+- High: Rule-only thì step-up/eKYC; ML-only thì Special Watchlist để bắt pattern mới.
 - AML branch: escalation theo mạng lưới IP/device/beneficiary, không nhìn từng giao dịch riêng lẻ.
-- Medium: theo dõi tăng cường và nâng cấp nếu lặp lại trong 7 ngày.
+- Medium: IQR/model/rule early warning, theo dõi tăng cường và nâng cấp nếu lặp lại trong 7 ngày.
 - KPI sau khi triển khai: prevention coverage, protected amount, hit rate trong top-K, false positive rate theo phân khúc, số case AML escalation, time-to-review.
 
-## 8. Liên hệ với chuẩn nghiệp vụ quốc tế
+## 9. Liên hệ với chuẩn nghiệp vụ quốc tế
 
 - FATF Risk-Based Approach for Banking Sector: ngân hàng nên hiểu mức độ rủi ro, ưu tiên nguồn lực vào nơi rủi ro cao và áp dụng biện pháp giảm thiểu tương ứng. Link: https://www.fatf-gafi.org/en/publications/Fatfrecommendations/Risk-based-approach-banking-sector.html
 - FFIEC Authentication and Access Guidance: với digital banking, kiểm soát nên theo hướng layered security, MFA/step-up authentication và tăng kiểm soát khi giao dịch hoặc truy cập có rủi ro cao. Link: https://www.ffiec.gov/news/press-releases/2021/pr-08-11
@@ -1342,7 +1651,7 @@ Theo định hướng giảm thiểu rủi ro, threshold đang ưu tiên bắt �
 
 Framework của dự án bám đúng tinh thần này: risk-based, layered controls, review queue theo capacity, và xAI reason codes để investigator kiểm tra được.
 
-## 9. Hạn chế
+## 10. Hạn chế
 
 Đây là framework prevention dùng weak label, không phải model xác nhận fraud tuyệt đối. Khi ngân hàng có kết quả review thật, cần đưa label đó quay lại pipeline để hiệu chỉnh rule, threshold, supervised model và đo Precision@K/Recall@K chính thức.
 """
@@ -1356,6 +1665,7 @@ def write_outputs(
     root_cause: pd.DataFrame,
     monthly_stability: pd.DataFrame,
     quarterly_stability: pd.DataFrame,
+    insights: list[dict[str, Any]],
     metrics: dict[str, Any],
     config: PipelineConfig,
 ) -> None:
@@ -1379,9 +1689,12 @@ def write_outputs(
         "rule_alert",
         "weak_label_confidence",
         "model_fraud_probability",
+        "model_score_0_100",
+        "model_risk_band",
         "ml_alert",
         "risk_score_0_100",
         "risk_band",
+        "risk_band_policy",
         "hybrid_decision",
         "primary_cause_branch",
         "top_reasons",
@@ -1395,14 +1708,23 @@ def write_outputs(
     root_cause.to_csv(config.output_dir / "root_cause_summary.csv", index=False)
     monthly_stability.to_csv(config.output_dir / "monthly_stability.csv", index=False)
     quarterly_stability.to_csv(config.output_dir / "quarterly_stability.csv", index=False)
+    pd.DataFrame(insights).to_csv(config.output_dir / "insight_summary.csv", index=False)
+    insight_md = "# Data-Driven Insight Summary\n\n" + "\n\n".join(
+        f"## {item['title']}\n\n- Evidence: {item['evidence']}\n- Business meaning: {item['business_meaning']}\n- Figure: `{item['linked_figure']}`"
+        for item in insights
+    )
+    (config.output_dir / "insight_summary.md").write_text(insight_md, encoding="utf-8")
     scores.sort_values("risk_score_0_100", ascending=False)[output_cols].head(1000).to_csv(config.output_dir / "top_review_queue.csv", index=False)
     xai_cols = [
         "transaction_row_id",
         "CUSTOMER_NUMBER",
         "rule_fraud_label",
         "model_fraud_probability",
+        "model_score_0_100",
+        "model_risk_band",
         "risk_score_0_100",
         "risk_band",
+        "risk_band_policy",
         "primary_cause_branch",
         *MODEL_FEATURES,
     ]
@@ -1427,13 +1749,15 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
     thresholds = build_thresholds(features)
     rule_scored = build_rule_score(features, thresholds)
     model_scored, _, supervised_model_metrics = train_prevention_model(rule_scored, config)
-    feature_importance = build_surrogate_importance(model_scored, config)
-    final_scores = finalise_explanations(model_scored, feature_importance)
+    model_feature_importance = build_surrogate_importance(model_scored, config, target_column="model_score_0_100")
+    final_scores = finalise_explanations(model_scored, model_feature_importance)
+    feature_importance = build_surrogate_importance(final_scores, config, target_column="risk_score_0_100")
     customer_summary = build_customer_summary(final_scores)
     customer_360 = build_customer_360(final_scores)
     root_cause = build_root_cause_summary(final_scores)
     prevention_impact = build_prevention_impact(final_scores)
     monthly_stability, quarterly_stability = build_time_stability(final_scores)
+    insights = build_insight_summary(final_scores)
     write_figures(final_scores, customer_360, root_cause, monthly_stability, config.figures_dir)
     metrics = build_metrics(
         final_scores,
@@ -1448,10 +1772,11 @@ def run_pipeline(config: PipelineConfig) -> dict[str, Any]:
         feature_importance,
         monthly_stability,
         quarterly_stability,
+        insights,
         config,
     )
     write_report_outline(metrics, root_cause, config.report_dir)
-    write_outputs(final_scores, customer_summary, customer_360, root_cause, monthly_stability, quarterly_stability, metrics, config)
+    write_outputs(final_scores, customer_summary, customer_360, root_cause, monthly_stability, quarterly_stability, insights, metrics, config)
     return metrics
 
 

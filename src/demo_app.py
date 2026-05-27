@@ -13,17 +13,18 @@ OUTPUT_DIR = Path("outputs")
 
 
 @st.cache_data(show_spinner=False)
-def load_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+def load_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     top_queue = pd.read_csv(OUTPUT_DIR / "top_review_queue.csv")
     customers = pd.read_csv(OUTPUT_DIR / "customer_risk_summary.csv")
     customer_360 = pd.read_csv(OUTPUT_DIR / "customer_360_baseline.csv")
     root_cause = pd.read_csv(OUTPUT_DIR / "root_cause_summary.csv")
+    insights = pd.read_csv(OUTPUT_DIR / "insight_summary.csv")
     metrics = json.loads((OUTPUT_DIR / "model_metrics.json").read_text(encoding="utf-8"))
     top_queue["transaction_row_id"] = top_queue["transaction_row_id"].astype(str)
     top_queue["CUSTOMER_NUMBER"] = top_queue["CUSTOMER_NUMBER"].astype(str)
     customers["CUSTOMER_NUMBER"] = customers["CUSTOMER_NUMBER"].astype(str)
     customer_360["CUSTOMER_NUMBER"] = customer_360["CUSTOMER_NUMBER"].astype(str)
-    return top_queue, customers, customer_360, root_cause, metrics
+    return top_queue, customers, customer_360, root_cause, insights, metrics
 
 
 def advisor_text(row: pd.Series) -> str:
@@ -72,7 +73,7 @@ def answer_query(query: str, top_queue: pd.DataFrame, customers: pd.DataFrame) -
 
 def main() -> None:
     st.set_page_config(page_title="G'Contest Fraud Risk Advisor", layout="wide")
-    top_queue, customers, customer_360, root_cause, metrics = load_demo_data()
+    top_queue, customers, customer_360, root_cause, insights, metrics = load_demo_data()
 
     st.title("Fraud Risk Advisor")
     st.caption("Real-data demo for G'Contest 2026. Rule-derived weak labels train a supervised fraud prevention model.")
@@ -83,8 +84,8 @@ def main() -> None:
     m3.metric("Critical", f"{metrics['review_queue']['critical_transactions']:,}")
     m4.metric("Prevention coverage", f"{metrics['prevention_impact']['prevention_coverage_against_rule_labels']:.1%}")
 
-    tab_overview, tab_customer360, tab_prevention, tab_case, tab_chat, tab_xai = st.tabs(
-        ["Overview", "Customer 360", "Prevention impact", "Case review", "Advisor chat", "xAI"]
+    tab_overview, tab_insights, tab_customer360, tab_prevention, tab_case, tab_chat, tab_xai = st.tabs(
+        ["Overview", "Data insights", "Customer 360", "Prevention impact", "Case review", "Advisor chat", "xAI"]
     )
 
     with tab_overview:
@@ -113,6 +114,27 @@ def main() -> None:
             )
             st.plotly_chart(fig, use_container_width=True)
         st.dataframe(top_queue.head(30), use_container_width=True, hide_index=True)
+
+    with tab_insights:
+        st.subheader("Data-driven insights")
+        st.caption("Các insight này được tính trực tiếp từ output scored population, không phải nhận xét thủ công.")
+        for row in insights.itertuples():
+            st.markdown(f"**{row.title}**")
+            st.write(row.evidence)
+            st.caption(row.business_meaning)
+        st.divider()
+        fig_cols = st.columns(2)
+        insight_figures = [
+            ("Root cause x hybrid matrix", "root_cause_hybrid_heatmap.png"),
+            ("IQR breach lift", "iqr_breach_lift.png"),
+            ("Time risk heatmap", "time_risk_heatmap.png"),
+            ("Network exposure bubble", "network_exposure_bubble.png"),
+            ("Customer 360 risk heatmap", "customer360_risk_heatmap.png"),
+        ]
+        for idx, (label, filename) in enumerate(insight_figures):
+            with fig_cols[idx % 2]:
+                st.write(f"**{label}**")
+                st.image(str(OUTPUT_DIR / "figures" / filename))
 
     with tab_customer360:
         st.subheader("Customer 360 baseline")

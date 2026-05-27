@@ -4,17 +4,19 @@ Tài liệu này đối chiếu feedback mentor với implementation hiện tạ
 
 ## Kết luận nhanh
 
-Source hiện tại không còn đi theo hướng cũ `Isolation Forest + 60/40 hybrid score`. Flow hiện tại là:
+Source hiện tại không còn đi theo hướng cũ `Isolation Forest + 60/40 hybrid score`. Flow hiện tại đã được đổi thành đúng 4 giai đoạn và 11 bước:
 
-1. Data cleaning và schema mapping.
-2. Customer 360 baseline.
-3. Rolling window 30/60/90 ngày.
-4. IQR threshold cá nhân hóa `Q3 + 1.5 * IQR`.
-5. Cause-first rule engine theo 3 nhóm nguyên nhân.
-6. Rule-based weak label.
-7. Supervised prevention model học từ weak label.
-8. Hybrid Rule + ML decision matrix.
-9. Dashboard/xAI/business impact.
+1. Data Cleaning: đọc dữ liệu thật, chuẩn hóa schema, xử lý beneficiary/merchant, aggregate activity log và ghép product snapshots.
+2. Four Baseline Metrics: Transactional, Financial, Environmental, Behavioral.
+3. Customer 360 Feature Extraction: rolling window 30/60/90 ngày và một dòng baseline cho mỗi khách hàng.
+4. Baseline EDA: sinh insight/figure từ lift, heatmap, network exposure và Customer 360, không chỉ biểu đồ cột đơn giản.
+5. IQR Thresholding: `Q3 + 1.5 * IQR` ở cấp khách hàng/ngày/giao dịch.
+6. Dynamic Rule Engine: ba nhánh nguyên nhân Account Takeover, Unauthorized Transfer, AML/Mule Network.
+7. Risk-Scoring & Auto-Labeling: Rule-based weak label được tạo qua `rule_fraud_label` để dùng cho weak supervision.
+8. ML Training: RandomForest prevention model học từ weak label, tối ưu recall/precision theo weak label.
+9. Hybrid Matrix: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Watchlist, No-alert = Allow.
+10. Dashboard: Streamlit hiển thị prevention impact, protected amount, Customer 360, insight và case review.
+11. xAI: reason codes + SHAP surrogate giải thích final hybrid prevention score.
 
 ## Verification Matrix
 
@@ -36,6 +38,9 @@ Source hiện tại không còn đi theo hướng cũ `Isolation Forest + 60/40 
 | Output vận hành, không chỉ phát hiện | `prevention_action`, `recommended_action`, `protected_amount`, dashboard Prevention impact | Done |
 | Dashboard thể hiện chặn/ngăn ngừa bao nhiêu | metrics `blocked_transactions`, `step_up_transactions`, `protected_amount_block_or_step_up`; Streamlit tab Prevention impact | Done |
 | xAI base trên report/model | `src/xai_shap_engine.py`, `outputs/shap_feature_importance.csv`, `outputs/shap_local_explanations.csv`, SHAP tab | Done |
+| Biểu đồ phải có insight, không chỉ bar chart đơn giản | `outputs/insight_summary.csv`; figures `root_cause_hybrid_heatmap`, `iqr_breach_lift`, `time_risk_heatmap`, `network_exposure_bubble`, `customer360_risk_heatmap` | Done |
+| Risk band không còn chia theo score/quantile cũ | `risk_band_policy` trong `model_metrics.json`; final band đi sau `hybrid_decision` | Done |
+| SHAP giải thích decision cuối, không phải score cũ | `src/xai_shap_engine.py` target final hybrid `risk_score_0_100`; `shap_metrics.json` ghi rõ | Done |
 | Không dùng flow synthetic/Isolation Forest cũ | Không có `src/generate_synthetic_data.py`; không có `synthetic_ground_truth.csv`; không còn Isolation Forest trong source | Verified |
 
 ## File quan trọng để BGK kiểm tra

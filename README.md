@@ -21,6 +21,7 @@ The current version no longer uses synthetic data or confirmed-fraud claims. The
   - a hybrid Rule + ML decision matrix,
   - prevention actions: Allow, Enhanced Monitoring, Step-up Authentication, Block/Hold.
 - Produces transaction-level and customer-level prevention queues.
+- Produces data-driven insight artifacts so the report is based on observed risk lift, not only simple count charts.
 - Outputs an xAI-style explanation: `top_reasons` and `recommended_action`.
 
 ## Local Setup
@@ -63,6 +64,8 @@ Main outputs:
 - `outputs/customer_360_baseline.csv`: Customer 360 baseline master table, local only.
 - `outputs/top_review_queue.csv`: top 1,000 transactions for demo, local only.
 - `outputs/root_cause_summary.csv`: aggregate cause summary.
+- `outputs/insight_summary.csv`: data-driven insights with evidence and business meaning.
+- `outputs/insight_summary.md`: readable insight summary for report writing.
 - `outputs/model_metrics.json`: schema checks, weak-label model metrics, and prevention-impact metrics.
 - `outputs/monthly_stability.csv`: monthly backtest for temporal stability.
 - `outputs/shap_feature_importance.csv`: SHAP feature importance from the surrogate xAI model.
@@ -89,11 +92,11 @@ Run the Streamlit live demo:
 streamlit run src/demo_app.py
 ```
 
-The Streamlit app includes an overview dashboard, Customer 360 tab, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
+The Streamlit app includes an overview dashboard, data-insights tab, Customer 360 tab, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
 
 ## xAI And Stability
 
-The primary explanations are reason codes tied to the cause-first framework. A separate SHAP engine trains a tree surrogate to explain the supervised prevention risk score:
+The primary explanations are reason codes tied to the cause-first framework. A separate SHAP engine trains a tree surrogate to explain the final hybrid prevention risk score after the Rule + ML decision matrix:
 
 ```bash
 python src/xai_shap_engine.py

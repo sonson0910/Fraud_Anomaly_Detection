@@ -40,7 +40,9 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     quarterly_path = OUTPUT_DIR / "quarterly_stability.csv"
     shap_path = OUTPUT_DIR / "shap_feature_importance.csv"
     shap_local_path = OUTPUT_DIR / "shap_local_explanations.csv"
-    for path in [risk_path, customer_path, customer_360_path, metrics_path, root_cause_path, top_queue_path, monthly_path, quarterly_path, shap_path, shap_local_path]:
+    shap_metrics_path = OUTPUT_DIR / "shap_metrics.json"
+    insight_path = OUTPUT_DIR / "insight_summary.csv"
+    for path in [risk_path, customer_path, customer_360_path, metrics_path, root_cause_path, top_queue_path, monthly_path, quarterly_path, shap_path, shap_local_path, shap_metrics_path, insight_path]:
         assert path.exists(), f"Missing output: {path}"
 
     risk = pd.read_csv(
@@ -56,13 +58,18 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
             "rule_fraud_label",
             "rule_alert",
             "model_fraud_probability",
+            "model_score_0_100",
+            "model_risk_band",
             "ml_alert",
+            "risk_band_policy",
         ],
     )
     customers = pd.read_csv(customer_path)
     customer_360 = pd.read_csv(customer_360_path)
     root_cause = pd.read_csv(root_cause_path)
+    insights = pd.read_csv(insight_path)
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    shap_metrics = json.loads(shap_metrics_path.read_text(encoding="utf-8"))
 
     assert len(risk) >= 1_000_000
     assert len(customers) >= 50_000
@@ -79,7 +86,13 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
     assert "supervised_model_metrics" in metrics
     assert "prevention_impact" in metrics
     assert "baseline_engineering" in metrics
+    assert "risk_band_policy" in metrics
+    assert "data_driven_insights" in metrics
     assert metrics["baseline_engineering"]["rolling_windows_days"] == [30, 60, 90]
+    assert "hybrid Rule + ML matrix" in metrics["risk_band_policy"]["note"]
+    assert "Final hybrid prevention risk_score_0_100" in shap_metrics["target"]
+    assert len(insights) >= 5
+    assert {"title", "evidence", "business_meaning", "linked_figure"}.issubset(insights.columns)
     assert risk["model_fraud_probability"].between(0, 1).all()
     assert {"Allow", "Enhanced Monitoring", "Step-up Authentication", "Block/Hold"}.issubset(set(risk["prevention_action"].unique()))
     assert set(risk["hybrid_decision"].unique()).issubset(
@@ -93,6 +106,34 @@ def test_outputs_exist_and_are_real_data_scoring_outputs() -> None:
         "environmental_trusted_device_count",
         "behavioral_avg_daily_activity_count",
     }.issubset(set(customer_360.columns))
+
+
+def test_final_flow_contract_matches_required_11_steps() -> None:
+    metrics = json.loads((OUTPUT_DIR / "model_metrics.json").read_text(encoding="utf-8"))
+    verification = (ROOT / "docs" / "FEEDBACK_VERIFICATION.md").read_text(encoding="utf-8")
+    risk = pd.read_csv(
+        OUTPUT_DIR / "transaction_risk_scores.csv",
+        usecols=["hybrid_decision", "risk_band", "risk_band_policy", "model_risk_band", "rule_fraud_label"],
+    )
+    for phrase in [
+        "Data Cleaning",
+        "Four Baseline Metrics",
+        "Customer 360 Feature Extraction",
+        "Baseline EDA",
+        "IQR Thresholding",
+        "Dynamic Rule Engine",
+        "Risk-Scoring & Auto-Labeling",
+        "ML Training",
+        "Hybrid Matrix",
+        "Dashboard",
+        "xAI",
+    ]:
+        assert phrase in verification
+    assert metrics["risk_band_policy"]["Critical"].startswith("Rule and ML both alert")
+    assert (risk.loc[risk["hybrid_decision"].eq("Rule+ML alert: Block/Hold"), "risk_band"] == "Critical").all()
+    assert (risk.loc[risk["hybrid_decision"].isin(["Rule-only alert: Step-up/eKYC", "ML-only alert: Special watchlist"]), "risk_band"] == "High").all()
+    assert "model_risk_band" in risk.columns
+    assert risk["rule_fraud_label"].isin([0, 1]).all()
 
 
 def test_explainability_fields_are_populated_for_review_queue() -> None:
@@ -120,6 +161,11 @@ def test_no_synthetic_generator_remains() -> None:
         "hybrid_decision_matrix.png",
         "customer_360_credit_risk_group.png",
         "rolling_window_baseline.png",
+        "root_cause_hybrid_heatmap.png",
+        "iqr_breach_lift.png",
+        "time_risk_heatmap.png",
+        "network_exposure_bubble.png",
+        "customer360_risk_heatmap.png",
         "shap_feature_importance.png",
         "shap_summary_beeswarm.png",
     ],

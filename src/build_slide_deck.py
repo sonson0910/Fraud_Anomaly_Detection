@@ -139,19 +139,18 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     )
     c.showPage()
 
-    slide_header(c, "Framework", "Data dictionary -> Customer 360 baseline -> root-cause rules -> weak labels -> prevention model")
+    slide_header(c, "4-Phase Framework", "The final system follows the requested 11-step prevention flow")
     steps = [
-        ("1. Data", "Customer, Transaction, Activity, Deposit, Lending, Card"),
-        ("2. Customer 360", "Transactional, Financial, Environmental, Behavioral baseline"),
-        ("3. Thresholds", "Rolling 30/60/90 days plus personalized IQR = Q3 + 1.5*IQR"),
-        ("4. Model", "Rules create weak labels; supervised model learns prevention risk"),
-        ("5. Hybrid Action", "Rule+ML matrix -> Allow / Watchlist / Step-up / Block"),
+        ("1. Foundation", "Clean data, create 4 baseline groups, package Customer 360 with rolling 30/60/90 days"),
+        ("2. EDA + Labels", "Insight charts, IQR thresholding, dynamic root-cause rules, weak labels"),
+        ("3. ML + Matrix", "RandomForest learns weak labels; Rule+ML matrix converts signals into bank actions"),
+        ("4. Operations", "Streamlit dashboard, protected amount, SHAP xAI and human-readable reason codes"),
     ]
     x = 0.65 * inch
     for idx, (title, body) in enumerate(steps):
-        y = 5.4 * inch - idx * 0.86 * inch
+        y = 5.0 * inch - idx * 0.95 * inch
         c.setFillColor(LIGHT if idx % 2 == 0 else colors.white)
-        c.roundRect(x, y, 11.9 * inch, 0.65 * inch, 5, fill=1, stroke=0)
+        c.roundRect(x, y, 11.9 * inch, 0.72 * inch, 5, fill=1, stroke=0)
         draw_text(c, title, x + 0.22 * inch, y + 0.40 * inch, 15, BLUE, 24)
         draw_text(c, body, x + 2.0 * inch, y + 0.40 * inch, 14, INK, 82)
     c.showPage()
@@ -192,9 +191,17 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
     )
     c.showPage()
 
-    slide_header(c, "Key Insights", "Top-risk queue is explainable by root-cause branch")
-    add_image(c, figures_dir / "root_cause_high_critical.png", 0.55 * inch, 1.1 * inch, 5.9 * inch, 4.2 * inch)
-    add_image(c, figures_dir / "risk_band_counts.png", 6.75 * inch, 1.1 * inch, 5.7 * inch, 4.2 * inch)
+    slide_header(c, "Data-Driven Insights", "Charts are selected from actual risk lifts and root-cause interactions")
+    insight_bullets = [
+        f"{item.get('title')}: {item.get('evidence')}"
+        for item in metrics.get("data_driven_insights", [])[:4]
+    ]
+    draw_bullets(c, insight_bullets, 0.75 * inch, 5.25 * inch, 13, 112)
+    c.showPage()
+
+    slide_header(c, "Insight Evidence", "Heatmaps and lift charts replace one-dimensional bar-only EDA")
+    add_image(c, figures_dir / "root_cause_hybrid_heatmap.png", 0.55 * inch, 1.1 * inch, 5.9 * inch, 4.3 * inch)
+    add_image(c, figures_dir / "iqr_breach_lift.png", 6.75 * inch, 1.1 * inch, 5.7 * inch, 4.3 * inch)
     c.showPage()
 
     slide_header(c, "Hybrid Decision Matrix", "Rule engine and ML confidence are converted into bank actions")
@@ -206,6 +213,7 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
             "Rule-only alert: Step-up/eKYC to reduce false positives.",
             "ML-only alert: Special watchlist for patterns not yet covered by rules.",
             "No alert: Allow while baseline continues to update.",
+            "Risk bands are assigned after this matrix so each band maps to a concrete bank control.",
         ],
         0.9 * inch,
         1.0 * inch,
@@ -227,6 +235,12 @@ def build_pdf(output_path: Path, metrics: dict, root_cause: pd.DataFrame, figure
         14,
         95,
     )
+    c.showPage()
+
+    slide_header(c, "Risk Pattern Maps", "Time, network and Customer 360 context explain where review capacity should go")
+    add_image(c, figures_dir / "time_risk_heatmap.png", 0.55 * inch, 1.15 * inch, 3.9 * inch, 4.1 * inch)
+    add_image(c, figures_dir / "network_exposure_bubble.png", 4.7 * inch, 1.15 * inch, 3.8 * inch, 4.1 * inch)
+    add_image(c, figures_dir / "customer360_risk_heatmap.png", 8.85 * inch, 1.15 * inch, 3.7 * inch, 4.1 * inch)
     c.showPage()
 
     slide_header(c, "xAI Engine", "SHAP explains a tree surrogate of the supervised prevention score")
@@ -301,12 +315,21 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
         ),
         (
             "Framework",
-            "Data -> baseline -> rules -> weak labels -> supervised prevention model -> SHAP/xAI.",
+            "4 phases, 11 steps: foundation -> EDA/labels -> ML/matrix -> dashboard/xAI.",
             [
-                "Customer 360 baseline by Transactional, Financial, Environmental and Behavioral groups",
-                "Rolling 30/60/90-day features plus IQR thresholds",
-                "Rule-derived weak labels train the supervised prevention model",
-                "Hybrid matrix creates human-readable recommended actions",
+                "Phase 1: clean data, four baseline groups, Customer 360 rolling 30/60/90 days",
+                "Phase 2: strategic EDA, IQR thresholding, dynamic root-cause rules, weak labels",
+                "Phase 3: RandomForest prevention model and Rule + ML action matrix",
+                "Phase 4: dashboard, protected amount, SHAP xAI and natural-language reason codes",
+            ],
+        ),
+        (
+            "Data Insights",
+            "EDA is now driven by risk lift, heatmaps, and interaction charts.",
+            [
+                "Root-cause x hybrid-decision heatmap",
+                "IQR breach lift versus normal baseline",
+                "Time, network and Customer 360 risk maps",
             ],
         ),
         (
@@ -340,7 +363,11 @@ def build_pptx(output_path: Path, metrics: dict, figures_dir: Path) -> None:
                 p.font.size = Pt(21)
                 p.level = 0
     for title, image in [
-        ("Root-Cause Review Queue", "root_cause_high_critical.png"),
+        ("Root-Cause x Hybrid Matrix", "root_cause_hybrid_heatmap.png"),
+        ("IQR Breach Lift", "iqr_breach_lift.png"),
+        ("Time Risk Heatmap", "time_risk_heatmap.png"),
+        ("Network Exposure", "network_exposure_bubble.png"),
+        ("Customer 360 Risk Map", "customer360_risk_heatmap.png"),
         ("Customer 360 Rolling Baseline", "rolling_window_baseline.png"),
         ("Hybrid Decision Matrix", "hybrid_decision_matrix.png"),
         ("Temporal Stability", "monthly_stability_backtest.png"),

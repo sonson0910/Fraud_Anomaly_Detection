@@ -25,13 +25,15 @@ Thay vì đưa model trước, nhóm xác định ba nhánh nguyên nhân theo �
 ## 4. Framework kỹ thuật
 
 1. Chuẩn hóa schema theo data dictionary, đồng thời xử lý khác biệt tên cột trong file thật như `TRANS_LV1`/`TRXN_LV1` và `LIMIT_AMT_CREDIT`/`LIMIT_AMT`.
-2. Tạo baseline hành vi theo từng khách hàng: số tiền trung bình, P95, tần suất ngày, thiết bị/IP/người thụ hưởng đã từng thấy.
-3. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
-4. Chấm điểm rule-based theo ba nhánh nguyên nhân.
-5. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
-6. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
-7. Chia band và hành động vận hành: Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold.
-8. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
+2. Tạo Customer 360 baseline: mỗi khách hàng một dòng với 4 nhóm Transactional, Financial, Environmental, Behavioral.
+3. Tính rolling window 30/60/90 ngày để phản ánh thói quen hiện tại thay vì dùng cứng toàn bộ lịch sử.
+4. Tạo threshold cá nhân hóa bằng P95, z-score và IQR (`Q3 + 1.5 * IQR`) cho số tiền, tần suất và tổng dòng tiền ngày.
+5. Liên kết digital activity cùng ngày với giao dịch: activity đêm, late-stage activity, activity liên quan account/authentication.
+6. Chấm điểm rule-based theo ba nhánh nguyên nhân.
+7. Tạo `rule_fraud_label` từ rule score: High/Critical theo nghiệp vụ được xem là fraud weak label; Low rõ ràng được xem là clean weak label; vùng giữa được đánh dấu uncertain.
+8. Huấn luyện supervised prevention model học từ weak label này để tự động dự báo xác suất fraud/prevention cho giao dịch mới.
+9. Dùng hybrid Rule + ML matrix để quyết định hành động: Rule+ML = Block/Hold, Rule-only = Step-up/eKYC, ML-only = Special Watchlist, No-alert = Allow.
+10. xAI engine xuất `top_reasons`, SHAP explanation và `recommended_action` cho từng giao dịch.
 
 Xử lý nghiệp vụ bổ sung:
 
@@ -39,6 +41,8 @@ Xử lý nghiệp vụ bổ sung:
 - Các merchant như ví điện tử, QR, telco, utility thường không có customer beneficiary cụ thể; nhóm này không bị coi là missing data mặc định.
 - Nếu merchant nội bộ/tín dụng không có customer beneficiary nhưng đi kèm số tiền, giờ hoặc activity bất thường, pipeline đưa vào reason code để kiểm tra thêm.
 - Overdue lending/credit được gom thành nhóm rủi ro tín dụng 1-5 theo số ngày quá hạn để bổ sung bối cảnh khách hàng tốt/xấu.
+- `outputs/customer_360_baseline.csv` là master data để giải thích baseline 360 độ và làm nền cho dashboard/report.
+- `outputs/figures/hybrid_decision_matrix.png`, `rolling_window_baseline.png` và `customer_360_credit_risk_group.png` minh họa rõ phần vận hành, rolling baseline và bối cảnh tín dụng.
 
 ## 5. Kết quả chính
 
@@ -47,6 +51,9 @@ Xử lý nghiệp vụ bổ sung:
 - Khách hàng có High/Critical transaction: 38,756.
 - Prevention coverage against rule labels: 100.00%.
 - Protected amount by Block/Step-up actions: 6,935,381,708,289.
+- Rule+ML Block/Hold transactions: 286,326.
+- Rule-only Step-up/eKYC transactions: 31,654.
+- ML-only Special Watchlist transactions: 115,940.
 
 Root-cause summary:
 

@@ -157,9 +157,15 @@ def main() -> None:
             color_discrete_sequence=["#8E2D2D", "#C46243", "#E0A72E", "#88A868"],
         )
         st.plotly_chart(fig, use_container_width=True)
-        st.write("**Hybrid decision matrix**")
-        hybrid_counts = top_queue["hybrid_decision"].value_counts().reset_index()
-        hybrid_counts.columns = ["hybrid_decision", "count"]
+        st.write("**Hybrid decision matrix - full scored population**")
+        hybrid_counts = pd.DataFrame(
+            [
+                {"hybrid_decision": "Rule+ML alert: Block/Hold", "count": impact["rule_and_ml_alert_transactions"]},
+                {"hybrid_decision": "Rule-only alert: Step-up/eKYC", "count": impact["rule_only_alert_transactions"]},
+                {"hybrid_decision": "ML-only alert: Special watchlist", "count": impact["ml_only_alert_transactions"]},
+                {"hybrid_decision": "No alert: Allow", "count": impact["no_alert_transactions"]},
+            ]
+        )
         st.dataframe(hybrid_counts, use_container_width=True, hide_index=True)
         st.caption("Coverage is measured against rule-derived weak labels, not confirmed fraud outcomes.")
 

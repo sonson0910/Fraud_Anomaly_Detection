@@ -134,3 +134,13 @@ def test_slide_deck_outputs_exist() -> None:
     for path in [ROOT / "report" / "final_slide_deck.pdf", ROOT / "report" / "final_slide_deck.pptx"]:
         assert path.exists()
         assert path.stat().st_size > 10_000
+
+
+def test_report_and_verification_reflect_current_flow() -> None:
+    report = (ROOT / "report" / "final_report_outline.md").read_text(encoding="utf-8")
+    verification = (ROOT / "docs" / "FEEDBACK_VERIFICATION.md").read_text(encoding="utf-8")
+    assert "Customer 360 baseline" in report
+    assert "hybrid Rule + ML matrix" in report or "Hybrid Rule + ML" in report
+    assert "Low = Allow, Medium = Enhanced Monitoring, High = Step-up Authentication, Critical = Block/Hold" not in report
+    assert "Không dùng flow synthetic/Isolation Forest cũ" in verification
+    assert "Rule-based weak label" in verification

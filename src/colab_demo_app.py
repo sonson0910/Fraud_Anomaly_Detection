@@ -354,7 +354,8 @@ def main() -> None:
     r1.metric("Customer 360 rows", f"{metrics['row_counts']['customer_360_rows']:,}")
     r2.metric("Weak-fraud customers", f"{metrics['row_counts']['weak_fraud_customers']:,}")
     r3.metric("Critical", f"{metrics['row_counts']['critical_customers']:,}")
-    r4.metric("Protected avg amount", f"{impact['protected_avg_transaction_amount']:,.0f}")
+    protected_amount = impact.get("test_total_saved_amount", impact.get("protected_avg_transaction_amount", 0))
+    r4.metric("Protected amount", f"{protected_amount:,.0f}")
 
     tab_transaction, tab_overview, tab_actions, tab_case, tab_xai, tab_colab_flow = st.tabs(
         ["Transaction test", "Overview", "Business actions", "Case advisor", "xAI", "Colab flow"]
@@ -402,7 +403,8 @@ def main() -> None:
 6. Create `Fraud`, `Risk_Segment`, `final_risk_score`, and `Reason_Code_Details`.
 7. Train the Colab XGBoost layer exactly as written in the notebook with an 80/20 train/test split (test set = 20%).
 8. Apply the hybrid matrix to create `Business_Action`.
-9. Export figures, feature importance, SHAP evidence, and business-impact metrics.
+9. Measure business impact on the held-out 20% test set, matching the newest notebook KPI logic.
+10. Export figures, feature importance, SHAP evidence, and business-impact metrics.
 """
         )
         if test_fraction is not None:
@@ -416,7 +418,9 @@ def main() -> None:
 
     with tab_actions:
         st.subheader("Business action matrix")
-        action_dist = pd.Series(metrics["business_action_distribution"]).reset_index()
+        test_action_dist = impact.get("test_action_distribution", {})
+        action_source = test_action_dist if test_action_dist else metrics["business_action_distribution"]
+        action_dist = pd.Series(action_source).reset_index()
         action_dist.columns = ["Business_Action", "customers"]
         fig = px.bar(
             action_dist,
@@ -424,21 +428,33 @@ def main() -> None:
             y="Business_Action",
             orientation="h",
             color="Business_Action",
-            title="Hybrid action output from Colab notebook",
+            title="Hybrid action output from newest notebook" + (" (20% test set)" if test_action_dist else ""),
         )
         st.plotly_chart(fig, use_container_width=True)
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Blocked", f"{impact['blocked_accounts']:,}")
-        c2.metric("Step-up", f"{impact['step_up_accounts']:,}")
-        c3.metric("Watchlist", f"{impact['watchlist_accounts']:,}")
-        rates = weak_label_action_rates(master, impact)
-        c4.metric("Block rate vs weak fraud", f"{rates['blocked']:.1%}")
-        st.caption("Block rate is hard prevention. Challenge coverage = Block + Step-up; review coverage also includes Watchlist.")
-        st.write(
-            f"Challenge coverage: **{rates['challenge']:.1%}** | "
-            f"Step-up only: **{rates['step_up']:.1%}** | "
-            f"Review coverage incl. watchlist: **{rates['review']:.1%}**"
-        )
+        if test_action_dist:
+            c1.metric("Test BLOCK", f"{impact.get('test_blocked_accounts', 0):,}")
+            c2.metric("Test eKYC", f"{impact.get('test_ekyc_accounts', 0):,}")
+            c3.metric("Test Watchlist", f"{impact.get('test_watchlist_accounts', 0):,}")
+            c4.metric("BLOCK share of test", f"{impact.get('test_block_rate_of_all_cases', 0):.1%}")
+            st.caption("Newest notebook measures operational impact on the held-out 20% test set.")
+            st.write(
+                f"Test challenge coverage vs weak fraud: **{impact.get('test_challenge_coverage_against_rule_label', 0):.1%}** | "
+                f"Test saved amount: **{impact.get('test_total_saved_amount', 0):,.0f} VND** | "
+                f"Test review/eKYC rate: **{impact.get('test_ekyc_rate_of_all_cases', 0):.1%}**"
+            )
+        else:
+            c1.metric("Blocked", f"{impact['blocked_accounts']:,}")
+            c2.metric("Step-up", f"{impact['step_up_accounts']:,}")
+            c3.metric("Watchlist", f"{impact['watchlist_accounts']:,}")
+            rates = weak_label_action_rates(master, impact)
+            c4.metric("Block rate vs weak fraud", f"{rates['blocked']:.1%}")
+            st.caption("Block rate is hard prevention. Challenge coverage = Block + Step-up; review coverage also includes Watchlist.")
+            st.write(
+                f"Challenge coverage: **{rates['challenge']:.1%}** | "
+                f"Step-up only: **{rates['step_up']:.1%}** | "
+                f"Review coverage incl. watchlist: **{rates['review']:.1%}**"
+            )
         st.write("**Model validation against Colab weak labels**")
         st.json(metrics["model_metrics"])
 

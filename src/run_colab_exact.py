@@ -18,8 +18,8 @@ import numpy as np
 import pandas as pd
 
 
-BUSINESS_CELL_INDICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 17, 19, 20, 21]
-SHAP_CELL_INDICES = {20, 21}
+BUSINESS_CELL_INDICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23]
+SHAP_CELL_INDICES = {20, 21, 22}
 COLAB_RAW_DIR = "/content/drive/MyDrive/Gcontest/Processed_Data"
 COLAB_CLEANED_DIR = "/content/drive/MyDrive/Gcontest/cleaned"
 DEMO_LIGHT_COLS = [
@@ -173,7 +173,9 @@ def export_demo_support_files(cleaned_dir: Path, namespace: dict[str, Any]) -> N
         df_shap_excel.to_csv(cleaned_dir / "colab_shap_local_explanations.csv", index=False)
 
     shap_values = namespace.get("shap_values")
-    x_all_input = namespace.get("X_all_input")
+    x_all_input = namespace.get("X_test_clean")
+    if not isinstance(x_all_input, pd.DataFrame):
+        x_all_input = namespace.get("X_all_input")
     if shap_values is not None and isinstance(x_all_input, pd.DataFrame):
         try:
             values = shap_values.values if hasattr(shap_values, "values") else shap_values
@@ -196,6 +198,9 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
     master[demo_cols].to_csv(cleaned_dir / "Customer_360_Demo_Light.csv", index=False)
     business_action = master["Business_Action"] if "Business_Action" in master.columns else pd.Series([], dtype=str)
     blocked = master.loc[business_action.eq("CRITICAL: BLOCK IMMEDIATELY")] if not business_action.empty else master.iloc[0:0]
+    test_result = namespace.get("df_test_result")
+    if not isinstance(test_result, pd.DataFrame):
+        test_result = pd.DataFrame()
 
     cm = namespace.get("cm")
     model_type = type(namespace["model_xgb"]).__name__ if "model_xgb" in namespace else "unknown"
@@ -211,6 +216,16 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
         model_metrics["test_fraction"] = (
             float(model_metrics["test_rows"] / total_model_rows) if total_model_rows else 0.0
         )
+    for source_name, metric_name in [
+        ("accuracy", "accuracy"),
+        ("precision", "precision"),
+        ("recall", "recall"),
+        ("fpr", "false_positive_rate"),
+        ("f1", "f1_score"),
+        ("f2", "f2_score"),
+    ]:
+        if source_name in namespace:
+            model_metrics[metric_name] = float(namespace[source_name])
 
     weak_fraud_count = int(master["Fraud"].sum()) if "Fraud" in master.columns else 0
     blocked_count = int(len(blocked))
@@ -226,9 +241,29 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
     def weak_label_rate(mask: pd.Series) -> float:
         return float((weak_fraud & mask).sum() / weak_fraud_count) if weak_fraud_count else 0.0
 
+    test_action = test_result["Action"].astype(str) if "Action" in test_result.columns else pd.Series([], dtype=str)
+    test_block = test_action.eq("BLOCK")
+    test_ekyc = test_action.eq("EKYC")
+    test_watchlist = test_action.eq("WATCHLIST")
+    test_allow = test_action.eq("ALLOW")
+    test_count = int(len(test_result))
+    test_weak = test_result["Fraud"].eq(1) if "Fraud" in test_result.columns else pd.Series(False, index=test_result.index)
+    test_saved_amount = (
+        float(pd.to_numeric(test_result.loc[test_block, "avg_balance_ca"], errors="coerce").fillna(0).sum())
+        if "avg_balance_ca" in test_result.columns
+        else 0.0
+    )
+
+    def test_rate(mask: pd.Series) -> float:
+        return float(mask.sum() / test_count) if test_count else 0.0
+
+    def test_weak_rate(mask: pd.Series) -> float:
+        weak_count = int(test_weak.sum())
+        return float((test_weak & mask).sum() / weak_count) if weak_count else 0.0
+
     metrics = {
         "runner": "src/run_colab_exact.py",
-        "source_notebook": "Another copy of Welcome To Colab",
+        "source_notebook": "Vòng_3_EAZII.ipynb / notebooks/colab_exact_business.ipynb",
         "execution_note": "Business cells were executed from the notebook source with only drive/path/shell-magic shims.",
         "data_source": str(raw_dir),
         "cleaned_output_dir": str(cleaned_dir),
@@ -264,6 +299,19 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
             "step_up_coverage_against_rule_label": weak_label_rate(step_up_mask),
             "challenge_coverage_against_rule_label": weak_label_rate(challenged_mask),
             "review_coverage_against_rule_label": weak_label_rate(reviewed_mask),
+            "test_rows": test_count,
+            "test_action_distribution": safe_series_counts(test_result, "Action") if not test_result.empty else {},
+            "test_blocked_accounts": int(test_block.sum()),
+            "test_ekyc_accounts": int(test_ekyc.sum()),
+            "test_watchlist_accounts": int(test_watchlist.sum()),
+            "test_allowed_accounts": int(test_allow.sum()),
+            "test_block_rate_of_all_cases": test_rate(test_block),
+            "test_ekyc_rate_of_all_cases": test_rate(test_ekyc),
+            "test_watchlist_rate_of_all_cases": test_rate(test_watchlist),
+            "test_allow_rate_of_all_cases": test_rate(test_allow),
+            "test_block_coverage_against_rule_label": test_weak_rate(test_block),
+            "test_challenge_coverage_against_rule_label": test_weak_rate(test_block | test_ekyc),
+            "test_total_saved_amount": test_saved_amount,
         },
         "model_metrics": model_metrics,
     }

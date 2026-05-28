@@ -216,6 +216,15 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
     blocked_count = int(len(blocked))
     step_up_count = int(business_action.eq("WARNING: REQUIRE STEP-UP EKYC/OTP").sum()) if not business_action.empty else 0
     watchlist_count = int(business_action.eq("MONITOR: ADD TO SPECIAL WATCHLIST").sum()) if not business_action.empty else 0
+    weak_fraud = master["Fraud"].eq(1) if "Fraud" in master.columns else pd.Series(False, index=master.index)
+    blocked_mask = business_action.eq("CRITICAL: BLOCK IMMEDIATELY") if not business_action.empty else pd.Series(False, index=master.index)
+    step_up_mask = business_action.eq("WARNING: REQUIRE STEP-UP EKYC/OTP") if not business_action.empty else pd.Series(False, index=master.index)
+    watchlist_mask = business_action.eq("MONITOR: ADD TO SPECIAL WATCHLIST") if not business_action.empty else pd.Series(False, index=master.index)
+    challenged_mask = blocked_mask | step_up_mask
+    reviewed_mask = challenged_mask | watchlist_mask
+
+    def weak_label_rate(mask: pd.Series) -> float:
+        return float((weak_fraud & mask).sum() / weak_fraud_count) if weak_fraud_count else 0.0
 
     metrics = {
         "runner": "src/run_colab_exact.py",
@@ -251,9 +260,10 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
             "max_single_avg_transaction_blocked": float(blocked["avg_trans_amount"].max())
             if "avg_trans_amount" in blocked.columns and len(blocked)
             else 0.0,
-            "challenge_coverage_against_rule_label": float(min(1.0, (blocked_count + step_up_count + watchlist_count) / weak_fraud_count))
-            if weak_fraud_count
-            else 0.0,
+            "blocked_coverage_against_rule_label": weak_label_rate(blocked_mask),
+            "step_up_coverage_against_rule_label": weak_label_rate(step_up_mask),
+            "challenge_coverage_against_rule_label": weak_label_rate(challenged_mask),
+            "review_coverage_against_rule_label": weak_label_rate(reviewed_mask),
         },
         "model_metrics": model_metrics,
     }

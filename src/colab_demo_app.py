@@ -308,6 +308,29 @@ def simulate_transaction(
     return candidate, audit
 
 
+def weak_label_action_rates(master: pd.DataFrame, impact: dict) -> dict[str, float]:
+    if {"Fraud", "Business_Action"}.issubset(master.columns):
+        weak = master["Fraud"].eq(1)
+        weak_count = int(weak.sum())
+        if weak_count:
+            action = master["Business_Action"].astype(str)
+            blocked = action.eq("CRITICAL: BLOCK IMMEDIATELY")
+            step_up = action.eq("WARNING: REQUIRE STEP-UP EKYC/OTP")
+            watchlist = action.eq("MONITOR: ADD TO SPECIAL WATCHLIST")
+            return {
+                "blocked": float((weak & blocked).sum() / weak_count),
+                "step_up": float((weak & step_up).sum() / weak_count),
+                "challenge": float((weak & (blocked | step_up)).sum() / weak_count),
+                "review": float((weak & (blocked | step_up | watchlist)).sum() / weak_count),
+            }
+    return {
+        "blocked": float(impact.get("blocked_coverage_against_rule_label", 0.0)),
+        "step_up": float(impact.get("step_up_coverage_against_rule_label", 0.0)),
+        "challenge": float(impact.get("challenge_coverage_against_rule_label", 0.0)),
+        "review": float(impact.get("review_coverage_against_rule_label", impact.get("challenge_coverage_against_rule_label", 0.0))),
+    }
+
+
 def main() -> None:
     st.set_page_config(page_title="Colab Fraud Demo", layout="wide")
     st.title("Colab Fraud Prevention Demo")
@@ -408,12 +431,14 @@ def main() -> None:
         c1.metric("Blocked", f"{impact['blocked_accounts']:,}")
         c2.metric("Step-up", f"{impact['step_up_accounts']:,}")
         c3.metric("Watchlist", f"{impact['watchlist_accounts']:,}")
-        coverage = impact.get("challenge_coverage_against_rule_label")
-        if coverage is None:
-            reviewed = impact.get("blocked_accounts", 0) + impact.get("step_up_accounts", 0) + impact.get("watchlist_accounts", 0)
-            weak = metrics.get("row_counts", {}).get("weak_fraud_customers", 0)
-            coverage = min(1.0, reviewed / weak) if weak else 0.0
-        c4.metric("Coverage vs weak label", f"{coverage:.1%}")
+        rates = weak_label_action_rates(master, impact)
+        c4.metric("Block rate vs weak fraud", f"{rates['blocked']:.1%}")
+        st.caption("Block rate is hard prevention. Challenge coverage = Block + Step-up; review coverage also includes Watchlist.")
+        st.write(
+            f"Challenge coverage: **{rates['challenge']:.1%}** | "
+            f"Step-up only: **{rates['step_up']:.1%}** | "
+            f"Review coverage incl. watchlist: **{rates['review']:.1%}**"
+        )
         st.write("**Model validation against Colab weak labels**")
         st.json(metrics["model_metrics"])
 

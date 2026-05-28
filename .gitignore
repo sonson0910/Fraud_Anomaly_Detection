@@ -20,3 +20,10 @@ outputs/customer_risk_summary.csv
 outputs/customer_360_baseline.csv
 outputs/top_review_queue.csv
 outputs/xai_feature_sample.csv
+
+# Local outputs generated from the user's Google Colab notebook copy.
+outputs/colab_cleaned/
+outputs/colab_figures/
+outputs/colab_exact_cleaned/
+outputs/colab_exact_figures/
+Another copy of Welcome To Colab

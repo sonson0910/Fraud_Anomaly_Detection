@@ -47,6 +47,22 @@ Processed_Data/
 
 The real data folder and large generated CSVs are intentionally ignored by Git.
 
+## One-Command Demo
+
+For another laptop that only needs to open the demo, clone the repo and run:
+
+```bash
+bash scripts/run_demo.sh
+```
+
+The script creates `.venv`, installs dependencies, copies the lightweight public demo bundle from `demo_data/` into `outputs/`, and starts Streamlit at:
+
+```text
+http://localhost:8501
+```
+
+This demo bundle is a compact sample derived from the exact Colab output so the UI, transaction test, rule engine, XGBoost layer, action matrix, and xAI tabs work without the private raw contest data. If `Processed_Data/` and the local Colab notebook are present, the same script can regenerate the exact local outputs instead.
+
 ## Run The Full Demo
 
 ```bash
@@ -89,10 +105,21 @@ The advisor returns the risk band, prevention action, main root-cause branch, re
 Run the Streamlit live demo:
 
 ```bash
-streamlit run src/demo_app.py
+streamlit run streamlit_app.py
 ```
 
 The Streamlit app includes an overview dashboard, data-insights tab, Customer 360 tab, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
+
+## Run The Colab-Based Demo
+
+If you want the web demo to use the exact business logic from the local notebook file `Another copy of Welcome To Colab`, run:
+
+```bash
+.venv/bin/python src/run_colab_exact.py --raw-dir Processed_Data --cleaned-dir outputs/colab_exact_cleaned --figures-dir outputs/colab_exact_figures
+streamlit run src/colab_demo_app.py
+```
+
+This executes the business cells from the notebook source and only patches Google Drive paths, shell magics, and `plt.show()` so it can run locally. It creates `Customer_360_Master_Data.csv`, Colab rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and a separate Streamlit dashboard. The generated Colab output folder is intentionally ignored by Git because it is large.
 
 ## xAI And Stability
 

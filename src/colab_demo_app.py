@@ -190,6 +190,75 @@ def risk_segment(score: float) -> str:
     return "Critical"
 
 
+def _clip(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _truthy(value: object, default: bool = False) -> bool:
+    if pd.isna(value):
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "co", "có", "outside", "external"}:
+        return True
+    if text in {"0", "false", "no", "n", "khong", "không", "internal"}:
+        return False
+    return default
+
+
+def _first_present(row: pd.Series, names: list[str], default: object = None) -> object:
+    lower_map = {str(col).lower(): col for col in row.index}
+    for name in names:
+        actual = lower_map.get(name.lower())
+        if actual is not None and not pd.isna(row[actual]):
+            return row[actual]
+    return default
+
+
+def _to_float(value: object, default: float = 0.0) -> float:
+    parsed = pd.to_numeric(value, errors="coerce")
+    if pd.isna(parsed):
+        return default
+    return float(parsed)
+
+
+def _to_int(value: object, default: int = 0) -> int:
+    parsed = pd.to_numeric(value, errors="coerce")
+    if pd.isna(parsed):
+        return default
+    return int(parsed)
+
+
+def _normalize_choice(value: object, valid_values: list[str], default: str) -> str:
+    if pd.isna(value):
+        return default
+    text = str(value).strip().lower()
+    for option in valid_values:
+        if text == option.lower():
+            return option
+    if "shared" in text or "farm" in text or "trại" in text:
+        return "Shared/farm device"
+    if "new" in text or "lạ" in text or "la" in text:
+        if "ip" in text or "proxy" in text:
+            return "New IP/proxy"
+        if "beneficiary" in text or "external" in text or "thụ hưởng" in text:
+            return "New external beneficiary"
+        return "New device"
+    if "merchant" in text or text in {"0", "0.0"}:
+        return "Merchant/zero beneficiary"
+    return default
+
+
+def _choice_from_boolean_flag(row: pd.Series, names: list[str], true_value: str, false_value: str) -> str | None:
+    lower_map = {str(col).lower(): col for col in row.index}
+    for name in names:
+        actual = lower_map.get(name.lower())
+        if actual is not None and not pd.isna(row[actual]):
+            return true_value if _truthy(row[actual]) else false_value
+    return None
+
+
 def business_action(rule_detected: int, ml_pred: int) -> str:
     if rule_detected and ml_pred:
         return "CRITICAL: BLOCK IMMEDIATELY"
@@ -226,7 +295,81 @@ def build_transaction_reasons(candidate: pd.Series, amount: float, threshold_amo
             f"Night anomaly: tỷ lệ giao dịch đêm sau cập nhật = {candidate['night_txn_ratio']:.1%}, "
             f"amount hiện tại = {amount:,.0f} VND."
         )
+    if not reasons:
+        reasons.append(
+            f"Điểm runtime phản ánh tín hiệu nhẹ: amount/threshold={candidate.get('runtime_amount_ratio', 0):.2f}, "
+            f"device={device_mode}, ML probability={candidate.get('model_fraud_probability', 0):.1%}."
+        )
     return " | ".join(reasons)
+
+
+def score_runtime_transaction(
+    candidate: pd.Series,
+    amount: float,
+    hour: int,
+    device_mode: str,
+    ip_mode: str,
+    beneficiary_mode: str,
+    outside_bank: bool,
+    recent_security_change: bool,
+    txns_today: int,
+    threshold_amount: float,
+) -> pd.Series:
+    amount_ratio = amount / max(threshold_amount, 1.0)
+    avg_ratio = float(candidate.get("avg_trans_amount", 0)) / max(threshold_amount, 1.0)
+    night_hour = hour in [23, 0, 1, 2, 3, 4]
+    new_device = device_mode in {"New device", "Shared/farm device"}
+    new_ip = ip_mode == "New IP/proxy"
+    risky_beneficiary = beneficiary_mode in {"New external beneficiary", "Merchant/zero beneficiary"}
+
+    ato_score = 0.0
+    if device_mode == "New device":
+        ato_score += 16
+    elif device_mode == "Shared/farm device":
+        ato_score += 30
+    if new_ip:
+        ato_score += 10
+    if recent_security_change:
+        ato_score += 10
+    if new_device and recent_security_change:
+        ato_score += 8
+    candidate["score_fraud_rule"] = round(_clip(ato_score, 0, 50), 2)
+
+    behavior_score = 0.0
+    if float(candidate.get("max_inactive_gap", 0)) > 60 and txns_today > 5:
+        behavior_score += 8 + min(12, (txns_today - 5) * 1.5)
+    if night_hour:
+        behavior_score += 5 + min(8, amount_ratio * 2)
+    if float(candidate.get("night_txn_ratio", 0)) > 0.6:
+        behavior_score += 7
+    candidate["score_behavioral_instability"] = round(_clip(behavior_score, 0, 30), 2)
+
+    aml_score = 0.0
+    if outside_bank:
+        aml_score += 4
+    if risky_beneficiary:
+        aml_score += 4
+    if amount_ratio > 1:
+        aml_score += min(8, 2 + amount_ratio * 1.5)
+    if avg_ratio > 1:
+        aml_score += min(4, avg_ratio)
+    if float(candidate.get("max_cic_overdue_days", 0)) > 0:
+        aml_score += 4
+    candidate["score_aml_risk"] = round(_clip(aml_score, 0, 20), 2)
+
+    candidate["runtime_amount_ratio"] = round(float(amount_ratio), 4)
+    candidate["runtime_avg_amount_ratio"] = round(float(avg_ratio), 4)
+    candidate["final_risk_score"] = round(
+        _clip(
+            float(candidate["score_fraud_rule"])
+            + float(candidate["score_behavioral_instability"])
+            + float(candidate["score_aml_risk"]),
+            0,
+            100,
+        ),
+        2,
+    )
+    return candidate
 
 
 def simulate_transaction(
@@ -271,21 +414,32 @@ def simulate_transaction(
         candidate["night_txn_ratio"] > 0.6 and candidate["avg_trans_amount"] > threshold_amount * 0.5
     )
 
-    candidate["score_fraud_rule"] = float((candidate["rule_ato"] == 1) or (candidate["rule_behavior_device"] == 1)) * 50.0
-    candidate["score_behavioral_instability"] = float(
-        (candidate["rule_dormant_active"] == 1) or (candidate["rule_night_anomaly"] == 1)
-    ) * 30.0
-    candidate["score_aml_risk"] = float(candidate["rule_money_mule"] == 1) * 20.0
-    candidate["final_risk_score"] = (
-        candidate["score_fraud_rule"] + candidate["score_behavioral_instability"] + candidate["score_aml_risk"]
+    candidate = score_runtime_transaction(
+        candidate,
+        amount,
+        hour,
+        device_mode,
+        ip_mode,
+        beneficiary_mode,
+        outside_bank,
+        recent_security_change,
+        txns_today,
+        threshold_amount,
     )
     candidate["Risk_Segment"] = risk_segment(float(candidate["final_risk_score"]))
     candidate["Fraud"] = int(candidate["final_risk_score"] > 0)
 
     model_input = pd.DataFrame([{col: candidate.get(col, 0) for col in feature_cols}])
     model_input = model_input.apply(pd.to_numeric, errors="coerce").fillna(0)
-    candidate["ML_Pred"] = int(model.predict(model_input)[0])
-    candidate["Rule_Detected"] = int(candidate["Fraud"] == 1)
+    model_proba = float(model.predict_proba(model_input)[0, 1])
+    candidate["model_fraud_probability"] = round(model_proba, 6)
+    candidate["ML_Pred"] = int(model_proba >= 0.5)
+    candidate["Rule_Detected"] = int(
+        candidate["final_risk_score"] >= 30
+        or candidate["rule_ato"]
+        or candidate["rule_money_mule"]
+        or candidate["rule_behavior_device"]
+    )
     candidate["Business_Action"] = business_action(int(candidate["Rule_Detected"]), int(candidate["ML_Pred"]))
     candidate["Reason_Code_Details"] = build_transaction_reasons(candidate, amount, threshold_amount, device_mode)
 
@@ -301,7 +455,10 @@ def simulate_transaction(
                     f"DeviceFarm={candidate['rule_behavior_device']}"
                 ),
             },
-            {"step": "4. Weak-label ML model", "output": f"ML_Pred={candidate['ML_Pred']} from XGBoost runtime model."},
+            {
+                "step": "4. Weak-label ML model",
+                "output": f"ML_Pred={candidate['ML_Pred']} with probability={candidate['model_fraud_probability']:.1%}.",
+            },
             {"step": "5. Hybrid action matrix", "output": str(candidate["Business_Action"])},
         ]
     )
@@ -329,6 +486,119 @@ def weak_label_action_rates(master: pd.DataFrame, impact: dict) -> dict[str, flo
         "challenge": float(impact.get("challenge_coverage_against_rule_label", 0.0)),
         "review": float(impact.get("review_coverage_against_rule_label", impact.get("challenge_coverage_against_rule_label", 0.0))),
     }
+
+
+def batch_row_to_simulation_args(row: pd.Series) -> dict[str, object]:
+    amount = _to_float(_first_present(row, ["TRANS_AMOUNT", "amount", "transaction_amount"], 0), 0.0)
+    hour = _to_int(_first_present(row, ["TRANS_HOUR", "hour", "transaction_hour"], 12), 12)
+    hour = int(_clip(hour, 0, 23))
+
+    device_mode = _normalize_choice(
+        _first_present(row, ["Device status", "DEVICE_STATUS", "device_mode", "device_status", "is_new_device"], "Known device"),
+        ["Known device", "New device", "Shared/farm device"],
+        "Known device",
+    )
+    device_mode = _choice_from_boolean_flag(row, ["is_new_device"], "New device", "Known device") or device_mode
+    ip_mode = _normalize_choice(
+        _first_present(row, ["IP status", "IP_STATUS", "ip_mode", "ip_status", "is_new_ip"], "Known IP"),
+        ["Known IP", "New IP/proxy"],
+        "Known IP",
+    )
+    ip_mode = _choice_from_boolean_flag(row, ["is_new_ip"], "New IP/proxy", "Known IP") or ip_mode
+    beneficiary_mode = _normalize_choice(
+        _first_present(
+            row,
+            ["Beneficiary status", "BENEFICIARY_STATUS", "beneficiary_mode", "beneficiary_status", "Beneficiary_CUSTOMER_NUMBER"],
+            "Known beneficiary",
+        ),
+        ["Known beneficiary", "New external beneficiary", "Merchant/zero beneficiary"],
+        "Known beneficiary",
+    )
+    beneficiary_mode = (
+        _choice_from_boolean_flag(row, ["is_new_beneficiary"], "New external beneficiary", "Known beneficiary")
+        or beneficiary_mode
+    )
+    outside_bank = _truthy(_first_present(row, ["outside_bank", "Outside-bank transfer", "is_outside_bank"], False))
+    recent_security_change = _truthy(
+        _first_present(row, ["recent_security_change", "Recent password/security change", "password_change", "is_security_change"], False)
+    )
+    txns_today = _to_int(_first_present(row, ["txns_today", "Transactions today after this txn", "burst_max"], 1), 1)
+    return {
+        "amount": amount,
+        "hour": hour,
+        "device_mode": device_mode,
+        "ip_mode": ip_mode,
+        "beneficiary_mode": beneficiary_mode,
+        "outside_bank": outside_bank,
+        "recent_security_change": recent_security_change,
+        "txns_today": max(1, txns_today),
+    }
+
+
+def score_batch_transactions(
+    upload_df: pd.DataFrame,
+    master: pd.DataFrame,
+    threshold_amount: float,
+    model: XGBClassifier,
+    feature_cols: list[str],
+) -> pd.DataFrame:
+    if "CUSTOMER_NUMBER" not in upload_df.columns:
+        raise ValueError("CSV phải có cột CUSTOMER_NUMBER.")
+
+    master_by_customer = master.assign(CUSTOMER_NUMBER=master["CUSTOMER_NUMBER"].astype(str)).set_index("CUSTOMER_NUMBER", drop=False)
+    results: list[dict[str, object]] = []
+    for idx, row in upload_df.iterrows():
+        customer_number = str(row["CUSTOMER_NUMBER"]).strip()
+        if customer_number not in master_by_customer.index:
+            results.append(
+                {
+                    "row_number": idx + 1,
+                    "CUSTOMER_NUMBER": customer_number,
+                    "status": "CUSTOMER_NOT_FOUND",
+                    "final_risk_score": np.nan,
+                    "Risk_Segment": "",
+                    "ML_Pred": "",
+                    "Business_Action": "",
+                    "Reason_Code_Details": "Không tìm thấy CUSTOMER_NUMBER trong Customer 360 baseline.",
+                }
+            )
+            continue
+
+        args = batch_row_to_simulation_args(row)
+        scored, _ = simulate_transaction(
+            master_by_customer.loc[customer_number],
+            float(args["amount"]),
+            int(args["hour"]),
+            str(args["device_mode"]),
+            str(args["ip_mode"]),
+            str(args["beneficiary_mode"]),
+            bool(args["outside_bank"]),
+            bool(args["recent_security_change"]),
+            int(args["txns_today"]),
+            threshold_amount,
+            model,
+            feature_cols,
+        )
+        results.append(
+            {
+                "row_number": idx + 1,
+                "CUSTOMER_NUMBER": customer_number,
+                "status": "SCORED",
+                "TRANS_AMOUNT": float(args["amount"]),
+                "TRANS_HOUR": int(args["hour"]),
+                "final_risk_score": float(scored["final_risk_score"]),
+                "Risk_Segment": scored["Risk_Segment"],
+                "model_fraud_probability": float(scored["model_fraud_probability"]),
+                "ML_Pred": int(scored["ML_Pred"]),
+                "Rule_Detected": int(scored["Rule_Detected"]),
+                "Business_Action": scored["Business_Action"],
+                "score_fraud_rule": float(scored["score_fraud_rule"]),
+                "score_behavioral_instability": float(scored["score_behavioral_instability"]),
+                "score_aml_risk": float(scored["score_aml_risk"]),
+                "Reason_Code_Details": scored["Reason_Code_Details"],
+            }
+        )
+    return pd.DataFrame(results)
 
 
 def main() -> None:
@@ -516,8 +786,11 @@ def main() -> None:
                 s1, s2, s3, s4 = st.columns(4)
                 s1.metric("Final risk score", f"{float(scored['final_risk_score']):.0f}")
                 s2.metric("Risk segment", scored["Risk_Segment"])
-                s3.metric("ML prediction", "Fraud-like" if int(scored["ML_Pred"]) else "Normal-like")
+                s3.metric("ML probability", f"{float(scored['model_fraud_probability']):.1%}")
                 s4.metric("Action", scored["Business_Action"])
+                st.caption(
+                    "Runtime risk score is severity-based inside the same 3 cause branches, so it can move between 0-100 instead of only 0/20/30/50."
+                )
 
                 st.write("**End-to-end execution trace**")
                 st.dataframe(audit, use_container_width=True, hide_index=True)
@@ -533,6 +806,8 @@ def main() -> None:
                     "score_fraud_rule",
                     "score_behavioral_instability",
                     "score_aml_risk",
+                    "model_fraud_probability",
+                    "runtime_amount_ratio",
                     "avg_trans_amount",
                     "unique_devices",
                     "unique_ips",
@@ -540,6 +815,74 @@ def main() -> None:
                     "burst_max",
                 ]
                 st.dataframe(scored[[col for col in display_cols if col in scored.index]].to_frame("value"), use_container_width=True)
+
+        st.divider()
+        st.subheader("Batch CSV transaction test")
+        st.caption(
+            "Upload một CSV nhiều giao dịch để chấm cùng lúc. Bắt buộc có `CUSTOMER_NUMBER`; các cột khác có thể dùng tên như "
+            "`TRANS_AMOUNT`, `TRANS_HOUR`, `device_status`, `ip_status`, `beneficiary_status`, `outside_bank`, "
+            "`recent_security_change`, `txns_today`."
+        )
+        sample_batch = pd.DataFrame(
+            [
+                {
+                    "CUSTOMER_NUMBER": demo_customer,
+                    "TRANS_AMOUNT": 150_000_000,
+                    "TRANS_HOUR": 1,
+                    "device_status": "New device",
+                    "ip_status": "New IP/proxy",
+                    "beneficiary_status": "New external beneficiary",
+                    "outside_bank": 1,
+                    "recent_security_change": 1,
+                    "txns_today": 8,
+                },
+                {
+                    "CUSTOMER_NUMBER": demo_customer,
+                    "TRANS_AMOUNT": 500_000,
+                    "TRANS_HOUR": 14,
+                    "device_status": "Known device",
+                    "ip_status": "Known IP",
+                    "beneficiary_status": "Known beneficiary",
+                    "outside_bank": 0,
+                    "recent_security_change": 0,
+                    "txns_today": 1,
+                },
+            ]
+        )
+        st.download_button(
+            "Download sample CSV template",
+            sample_batch.to_csv(index=False).encode("utf-8-sig"),
+            file_name="sample_batch_transactions.csv",
+            mime="text/csv",
+        )
+        uploaded_csv = st.file_uploader("Upload transaction CSV", type=["csv"])
+        if uploaded_csv is not None:
+            try:
+                upload_df = pd.read_csv(uploaded_csv)
+                with st.spinner("Scoring uploaded transactions..."):
+                    model, feature_cols = train_runtime_transaction_model(master)
+                    threshold_amount = float(metrics.get("thresholds", {}).get("THRESHOLD_AMOUNT") or 0.0)
+                    batch_result = score_batch_transactions(upload_df, master, threshold_amount, model, feature_cols)
+                st.success(f"Scored {len(batch_result):,} rows.")
+                b1, b2, b3, b4 = st.columns(4)
+                valid_rows = batch_result["status"].eq("SCORED")
+                b1.metric("Rows scored", f"{int(valid_rows.sum()):,}")
+                b2.metric("Block/Hold", f"{int(batch_result['Business_Action'].eq('CRITICAL: BLOCK IMMEDIATELY').sum()):,}")
+                b3.metric("Step-up/eKYC", f"{int(batch_result['Business_Action'].eq('WARNING: REQUIRE STEP-UP EKYC/OTP').sum()):,}")
+                b4.metric("Avg risk score", f"{batch_result.loc[valid_rows, 'final_risk_score'].mean():.1f}" if valid_rows.any() else "N/A")
+                st.dataframe(
+                    batch_result.sort_values("final_risk_score", ascending=False, na_position="last"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.download_button(
+                    "Download scored results CSV",
+                    batch_result.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="scored_batch_transactions.csv",
+                    mime="text/csv",
+                )
+            except Exception as exc:
+                st.error(f"Không đọc/chấm được CSV: {exc}")
 
     with tab_case:
         st.subheader("Customer risk advisor")

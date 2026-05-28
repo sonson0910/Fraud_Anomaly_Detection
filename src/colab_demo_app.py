@@ -321,6 +321,11 @@ def main() -> None:
         return
 
     impact = metrics["business_impact"]
+    model_metrics = metrics.get("model_metrics", {})
+    test_fraction = model_metrics.get("test_fraction")
+    if test_fraction is None and model_metrics.get("test_rows") is not None and model_metrics.get("training_rows") is not None:
+        total_model_rows = model_metrics["test_rows"] + model_metrics["training_rows"]
+        test_fraction = model_metrics["test_rows"] / total_model_rows if total_model_rows else 0.0
     r1, r2, r3, r4 = st.columns(4)
     r1.metric("Customer 360 rows", f"{metrics['row_counts']['customer_360_rows']:,}")
     r2.metric("Weak-fraud customers", f"{metrics['row_counts']['weak_fraud_customers']:,}")
@@ -371,11 +376,13 @@ def main() -> None:
 4. Merge them into `Customer_360_Master_Data.csv`.
 5. Compute Colab IQR amount threshold and five rule flags.
 6. Create `Fraud`, `Risk_Segment`, `final_risk_score`, and `Reason_Code_Details`.
-7. Train the Colab XGBoost layer exactly as written in the notebook.
+7. Train the Colab XGBoost layer exactly as written in the notebook with an 80/20 train/test split (test set = 20%).
 8. Apply the hybrid matrix to create `Business_Action`.
 9. Export figures, feature importance, SHAP evidence, and business-impact metrics.
 """
         )
+        if test_fraction is not None:
+            st.metric("Model test set", f"{test_fraction:.0%}")
         fig_cols = st.columns(2)
         figure_files = [(f"Exact Colab figure {i:02d}", f"colab_exact_figure_{i:02d}.png") for i in range(1, 9)]
         for idx, (label, filename) in enumerate(figure_files):

@@ -690,7 +690,7 @@ def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd
     x_train, x_valid, y_train, y_valid = train_test_split(
         x,
         y,
-        test_size=0.25,
+        test_size=0.20,
         random_state=config.random_state,
         stratify=y,
     )
@@ -734,6 +734,7 @@ def train_prevention_model(df: pd.DataFrame, config: PipelineConfig) -> tuple[pd
         "target": "rule_fraud_label generated from root-cause rule score",
         "training_rows": int(len(x_train)),
         "validation_rows": int(len(x_valid)),
+        "validation_fraction": 0.20,
         "positive_train_rate": float(y_train.mean()),
         "validation_roc_auc": float(roc_auc_score(y_valid, valid_score)),
         "validation_pr_auc": float(average_precision_score(y_valid, valid_score)),

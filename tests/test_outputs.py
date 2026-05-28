@@ -149,6 +149,16 @@ def test_no_synthetic_generator_remains() -> None:
     assert not (ROOT / "src" / "generate_synthetic_data.py").exists()
 
 
+def test_model_validation_split_is_20_percent() -> None:
+    notebook_source = (ROOT / "notebooks" / "colab_exact_business.ipynb").read_text(encoding="utf-8")
+    pipeline_source = (ROOT / "src" / "fraud_pipeline.py").read_text(encoding="utf-8")
+    assert "test_size=0.2" in notebook_source
+    assert "TEST SET = 20%" in notebook_source
+    assert "100% DATA LEAKAGE" not in notebook_source
+    assert "test_size=0.20" in pipeline_source
+    assert '"validation_fraction": 0.20' in pipeline_source
+
+
 @pytest.mark.parametrize(
     "figure",
     [

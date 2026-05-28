@@ -206,6 +206,11 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
         model_metrics["test_rows"] = int(len(namespace["y_test"]))
     if "X_train" in namespace:
         model_metrics["training_rows"] = int(len(namespace["X_train"]))
+    if model_metrics.get("test_rows") is not None and model_metrics.get("training_rows") is not None:
+        total_model_rows = model_metrics["test_rows"] + model_metrics["training_rows"]
+        model_metrics["test_fraction"] = (
+            float(model_metrics["test_rows"] / total_model_rows) if total_model_rows else 0.0
+        )
 
     weak_fraud_count = int(master["Fraud"].sum()) if "Fraud" in master.columns else 0
     blocked_count = int(len(blocked))

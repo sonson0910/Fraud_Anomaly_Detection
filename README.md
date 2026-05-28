@@ -23,7 +23,7 @@ The current version no longer uses synthetic data or confirmed-fraud claims. The
 - Produces transaction-level and customer-level prevention queues.
 - Produces data-driven insight artifacts so the report is based on observed risk lift, not only simple count charts.
 - Outputs an xAI-style explanation: `top_reasons` and `recommended_action`.
-- Streamlit demo supports both one-transaction testing and batch CSV upload for scoring many new transactions at once.
+- Streamlit demo supports both one-transaction testing and batch CSV upload. The real-time test can either use an existing `CUSTOMER_NUMBER` baseline or a manually entered new-customer baseline.
 
 ## Local Setup
 

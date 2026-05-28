@@ -47,21 +47,35 @@ Processed_Data/
 
 The real data folder and large generated CSVs are intentionally ignored by Git.
 
-## One-Command Demo
+## One-Command Demo With Real Data
 
-For another laptop that only needs to open the demo, clone the repo and run:
+Clone the repo, put the real contest folder on the machine, then run one script:
+
+```bash
+git clone https://github.com/sonson0910/Fraud_Anomaly_Detection.git
+cd Fraud_Anomaly_Detection
+bash scripts/run_demo.sh /path/to/Processed_Data
+```
+
+If the data folder is already named `Processed_Data/` inside the repo, you can simply run:
 
 ```bash
 bash scripts/run_demo.sh
 ```
 
-The script creates `.venv`, installs dependencies, copies the lightweight public demo bundle from `demo_data/` into `outputs/`, and starts Streamlit at:
+The script creates `.venv`, installs dependencies, executes the exact Colab business notebook stored at `notebooks/colab_exact_business.ipynb`, writes regenerated outputs to `outputs/colab_exact_cleaned/`, and starts Streamlit at:
 
 ```text
 http://localhost:8501
 ```
 
-This demo bundle is a compact sample derived from the exact Colab output so the UI, transaction test, rule engine, XGBoost layer, action matrix, and xAI tabs work without the private raw contest data. If `Processed_Data/` and the local Colab notebook are present, the same script can regenerate the exact local outputs instead.
+To force regeneration after replacing the data folder:
+
+```bash
+FORCE_REBUILD=1 bash scripts/run_demo.sh /path/to/Processed_Data
+```
+
+Raw contest data and regenerated heavy outputs are not committed to Git. They stay on the local machine or external Drive.
 
 ## Run The Full Demo
 
@@ -110,16 +124,16 @@ streamlit run streamlit_app.py
 
 The Streamlit app includes an overview dashboard, data-insights tab, Customer 360 tab, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
 
-## Run The Colab-Based Demo
+## Run The Colab-Based Demo Manually
 
-If you want the web demo to use the exact business logic from the local notebook file `Another copy of Welcome To Colab`, run:
+The one-command script above is recommended. Manual equivalent:
 
 ```bash
-.venv/bin/python src/run_colab_exact.py --raw-dir Processed_Data --cleaned-dir outputs/colab_exact_cleaned --figures-dir outputs/colab_exact_figures
-streamlit run src/colab_demo_app.py
+python src/run_colab_exact.py   --notebook notebooks/colab_exact_business.ipynb   --raw-dir /path/to/Processed_Data   --cleaned-dir outputs/colab_exact_cleaned   --figures-dir outputs/colab_exact_figures
+streamlit run streamlit_app.py
 ```
 
-This executes the business cells from the notebook source and only patches Google Drive paths, shell magics, and `plt.show()` so it can run locally. It creates `Customer_360_Master_Data.csv`, Colab rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and a separate Streamlit dashboard. The generated Colab output folder is intentionally ignored by Git because it is large.
+This executes the exact business cells from the Colab notebook source and only patches local paths, shell magics, and `plt.show()`. It creates `Customer_360_Master_Data.csv`, Colab rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and the Streamlit dashboard. The generated output folder is intentionally ignored by Git because it is large.
 
 ## xAI And Stability
 

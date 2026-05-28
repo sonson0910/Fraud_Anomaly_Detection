@@ -92,7 +92,7 @@ def load_colab_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
         master_path = CLEANED_DIR / "Customer_360_Master_Data.csv"
     metrics_path = CLEANED_DIR / "colab_metrics.json"
     if not master_path.exists() or not metrics_path.exists():
-        raise FileNotFoundError("Missing Colab outputs. Run `.venv/bin/python src/run_colab_exact.py` first.")
+        raise FileNotFoundError("Missing Colab outputs. Run `scripts/run_demo.sh` or `scripts/run_demo.ps1` first.")
     master = pd.read_csv(master_path, usecols=lambda col: col in MASTER_COLS, low_memory=False)
     master["CUSTOMER_NUMBER"] = master["CUSTOMER_NUMBER"].astype(str)
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -317,7 +317,8 @@ def main() -> None:
         master, feature_importance, shap_importance, shap_local, metrics = load_colab_demo_data()
     except FileNotFoundError as exc:
         st.error(str(exc))
-        st.code(".venv/bin/python src/run_colab_exact.py --raw-dir Processed_Data --cleaned-dir outputs/colab_exact_cleaned --figures-dir outputs/colab_exact_figures")
+        st.code("macOS/Linux: bash scripts/run_demo.sh ./Processed_Data")
+        st.code("Windows: powershell -ExecutionPolicy Bypass -File scripts/run_demo.ps1 -DataDir .\\Processed_Data")
         return
 
     impact = metrics["business_impact"]

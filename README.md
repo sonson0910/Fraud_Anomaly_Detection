@@ -26,9 +26,19 @@ The current version no longer uses synthetic data or confirmed-fraud claims. The
 
 ## Local Setup
 
+macOS / Linux:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -51,16 +61,32 @@ The real data folder and large generated CSVs are intentionally ignored by Git.
 
 Clone the repo, put the real contest folder on the machine, then run one script:
 
+macOS / Linux:
+
 ```bash
 git clone https://github.com/sonson0910/Fraud_Anomaly_Detection.git
 cd Fraud_Anomaly_Detection
 bash scripts/run_demo.sh /path/to/Processed_Data
 ```
 
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/sonson0910/Fraud_Anomaly_Detection.git
+cd Fraud_Anomaly_Detection
+powershell -ExecutionPolicy Bypass -File scripts/run_demo.ps1 -DataDir "C:\path\to\Processed_Data"
+```
+
 If the data folder is already named `Processed_Data/` inside the repo, you can simply run:
 
 ```bash
 bash scripts/run_demo.sh
+```
+
+or on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_demo.ps1
 ```
 
 The script creates `.venv`, installs dependencies, executes the exact Colab business notebook stored at `notebooks/colab_exact_business.ipynb`, writes regenerated outputs to `outputs/colab_exact_cleaned/`, and starts Streamlit at:
@@ -73,6 +99,13 @@ To force regeneration after replacing the data folder:
 
 ```bash
 FORCE_REBUILD=1 bash scripts/run_demo.sh /path/to/Processed_Data
+```
+
+Windows:
+
+```powershell
+$env:FORCE_REBUILD="1"
+powershell -ExecutionPolicy Bypass -File scripts/run_demo.ps1 -DataDir "C:\path\to\Processed_Data"
 ```
 
 Raw contest data and regenerated heavy outputs are not committed to Git. They stay on the local machine or external Drive.

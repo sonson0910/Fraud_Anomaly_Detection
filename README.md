@@ -58,6 +58,22 @@ Processed_Data/
 
 The real data folder and large generated CSVs are intentionally ignored by Git.
 
+## Run The Round 3 Notebook Locally
+
+The root notebook `Vòng_3_EAZII.ipynb` is local-runnable. It no longer depends on Google Drive paths. By default it reads `./Processed_Data` and writes generated files to `./outputs/vong3_cleaned`.
+
+Run it from the repo root:
+
+```bash
+RAW_DIR=Processed_Data CLEANED_DIR=outputs/vong3_cleaned jupyter nbconvert --execute --to notebook --output outputs/Vòng_3_EAZII_executed.ipynb "Vòng_3_EAZII.ipynb"
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:RAW_DIR=".\Processed_Data"; $env:CLEANED_DIR="outputs\vong3_cleaned"; jupyter nbconvert --execute --to notebook --output outputs\Vòng_3_EAZII_executed.ipynb "Vòng_3_EAZII.ipynb"
+```
+
 ## One-Command Demo With Real Data
 
 Clone the repo, put the real contest folder on the machine, then run one script:

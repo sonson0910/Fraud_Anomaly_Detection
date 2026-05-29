@@ -150,7 +150,7 @@ def test_no_synthetic_generator_remains() -> None:
 
 
 def test_model_validation_split_is_20_percent() -> None:
-    notebook_source = (ROOT / "notebooks" / "colab_exact_business.ipynb").read_text(encoding="utf-8")
+    notebook_source = (ROOT / "Vòng_3_EAZII.ipynb").read_text(encoding="utf-8")
     pipeline_source = (ROOT / "src" / "fraud_pipeline.py").read_text(encoding="utf-8")
     assert "test_size=0.2" in notebook_source
     assert "20% TEST" in notebook_source or "TEST SET = 20%" in notebook_source

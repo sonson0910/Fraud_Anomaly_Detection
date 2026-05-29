@@ -106,7 +106,7 @@ or on Windows:
 powershell -ExecutionPolicy Bypass -File scripts/run_demo.ps1
 ```
 
-The script creates `.venv`, installs dependencies, executes the exact Colab business notebook stored at `notebooks/colab_exact_business.ipynb`, writes regenerated outputs to `outputs/colab_exact_cleaned/`, and starts Streamlit at:
+The script creates `.venv`, installs dependencies, executes the exact Vòng 3 notebook stored at `Vòng_3_EAZII.ipynb`, writes regenerated outputs to `outputs/vong3_cleaned/`, and starts Streamlit at:
 
 ```text
 http://localhost:8501
@@ -174,16 +174,16 @@ streamlit run streamlit_app.py
 
 The Streamlit app includes an overview dashboard, data-insights tab, Customer 360 tab, prevention-impact tab, case-review tab, chatbot-style advisor, and SHAP/xAI tab.
 
-## Run The Colab-Based Demo Manually
+## Run The Vòng 3 Demo Manually
 
 The one-command script above is recommended. Manual equivalent:
 
 ```bash
-python src/run_colab_exact.py   --notebook notebooks/colab_exact_business.ipynb   --raw-dir /path/to/Processed_Data   --cleaned-dir outputs/colab_exact_cleaned   --figures-dir outputs/colab_exact_figures
+python src/run_colab_exact.py   --notebook "Vòng_3_EAZII.ipynb"   --raw-dir /path/to/Processed_Data   --cleaned-dir outputs/vong3_cleaned   --figures-dir outputs/vong3_figures
 streamlit run streamlit_app.py
 ```
 
-This executes the exact business cells from the Colab notebook source and only patches local paths, shell magics, and `plt.show()`. It creates `Customer_360_Master_Data.csv`, Colab rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and the Streamlit dashboard. The generated output folder is intentionally ignored by Git because it is large.
+This executes the exact business cells from `Vòng_3_EAZII.ipynb` and only patches local paths, shell magics, and `plt.show()`. It creates `Customer_360_Master_Data.csv`, Vòng 3 rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and the Streamlit dashboard. The generated output folder is intentionally ignored by Git because it is large.
 
 ## xAI And Stability
 

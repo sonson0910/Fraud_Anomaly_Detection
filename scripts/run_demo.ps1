@@ -22,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($VenvDir)) {
     $VenvDir = ".venv"
 }
 if ([string]::IsNullOrWhiteSpace($NotebookPath)) {
-    $NotebookPath = "notebooks/colab_exact_business.ipynb"
+    $NotebookPath = "Vòng_3_EAZII.ipynb"
 }
 if ([string]::IsNullOrWhiteSpace($ForceRebuild)) {
     $ForceRebuild = "0"
@@ -38,8 +38,8 @@ if (-not (Test-Path $VenvPython)) {
 & $VenvPython -m pip install --upgrade pip
 & $VenvPython -m pip install -r requirements.txt
 
-$CleanedDir = "outputs/colab_exact_cleaned"
-$FiguresDir = "outputs/colab_exact_figures"
+$CleanedDir = $(if ($env:CLEANED_DIR) { $env:CLEANED_DIR } else { "outputs/vong3_cleaned" })
+$FiguresDir = $(if ($env:FIGURES_DIR) { $env:FIGURES_DIR } else { "outputs/vong3_figures" })
 
 New-Item -ItemType Directory -Force -Path $CleanedDir, $FiguresDir | Out-Null
 

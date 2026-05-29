@@ -12,8 +12,8 @@ import streamlit as st
 from xgboost import XGBClassifier
 
 
-CLEANED_DIR = Path(os.environ.get("COLAB_CLEANED_DIR", "outputs/colab_exact_cleaned"))
-FIGURES_DIR = Path(os.environ.get("COLAB_FIGURES_DIR", "outputs/colab_exact_figures"))
+CLEANED_DIR = Path(os.environ.get("COLAB_CLEANED_DIR", "outputs/vong3_cleaned"))
+FIGURES_DIR = Path(os.environ.get("COLAB_FIGURES_DIR", "outputs/vong3_figures"))
 
 
 MASTER_COLS = [
@@ -92,7 +92,7 @@ def load_colab_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
         master_path = CLEANED_DIR / "Customer_360_Master_Data.csv"
     metrics_path = CLEANED_DIR / "colab_metrics.json"
     if not master_path.exists() or not metrics_path.exists():
-        raise FileNotFoundError("Missing Colab outputs. Run `scripts/run_demo.sh` or `scripts/run_demo.ps1` first.")
+        raise FileNotFoundError("Missing Vòng 3 notebook outputs. Run `scripts/run_demo.sh` or `scripts/run_demo.ps1` first.")
     master = pd.read_csv(master_path, usecols=lambda col: col in MASTER_COLS, low_memory=False)
     master["CUSTOMER_NUMBER"] = master["CUSTOMER_NUMBER"].astype(str)
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -105,7 +105,7 @@ def load_colab_demo_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd
 
 def advisor_text(row: pd.Series) -> str:
     return (
-        f"Customer {row['CUSTOMER_NUMBER']} is {row['Risk_Segment']} with Colab risk score "
+        f"Customer {row['CUSTOMER_NUMBER']} is {row['Risk_Segment']} with Vòng 3 risk score "
         f"{float(row['final_risk_score']):.0f}/100. Business action: {row['Business_Action']}. "
         f"Reasons: {row['Reason_Code_Details']}"
     )
@@ -121,10 +121,10 @@ def find_customer(query: str, master: pd.DataFrame) -> pd.DataFrame:
 def show_case(row: pd.Series) -> None:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Risk segment", row["Risk_Segment"])
-    c2.metric("Colab risk score", f"{float(row['final_risk_score']):.0f}")
+    c2.metric("Vòng 3 risk score", f"{float(row['final_risk_score']):.0f}")
     c3.metric("Max amount", f"{float(row['max_trans_amount']):,.0f}")
     c4.metric("Action", row["Business_Action"])
-    st.write("**Reason code from Colab notebook logic**")
+    st.write("**Reason code from Vòng 3 notebook logic**")
     st.write(row["Reason_Code_Details"])
     st.write("**Rule flags**")
     rule_cols = ["rule_behavior_device", "rule_ato", "rule_money_mule", "rule_dormant_active", "rule_night_anomaly"]
@@ -696,9 +696,9 @@ def score_batch_transactions(
 
 
 def main() -> None:
-    st.set_page_config(page_title="Colab Fraud Demo", layout="wide")
-    st.title("Colab Fraud Prevention Demo")
-    st.caption("Demo này đọc output sinh từ logic trong `Another copy of Welcome To Colab`, chạy local bằng dữ liệu cũ trong `Processed_Data/`.")
+    st.set_page_config(page_title="Vòng 3 Fraud Demo", layout="wide")
+    st.title("Vòng 3 Fraud Prevention Demo")
+    st.caption("Demo này đọc output sinh trực tiếp từ `Vòng_3_EAZII.ipynb`, chạy local bằng dữ liệu thật trong `Processed_Data/`.")
 
     try:
         master, feature_importance, shap_importance, shap_local, metrics = load_colab_demo_data()
@@ -722,7 +722,7 @@ def main() -> None:
     r4.metric("Protected amount", f"{protected_amount:,.0f}")
 
     tab_transaction, tab_overview, tab_actions, tab_case, tab_xai, tab_colab_flow = st.tabs(
-        ["Transaction test", "Overview", "Business actions", "Case advisor", "xAI", "Colab flow"]
+        ["Transaction test", "Overview", "Business actions", "Case advisor", "xAI", "Vòng 3 flow"]
     )
 
     with tab_overview:
@@ -736,7 +736,7 @@ def main() -> None:
                 y="customers",
                 color="Risk_Segment",
                 color_discrete_map={"Low": "#2ecc71", "Medium": "#f1c40f", "High": "#e67e22", "Critical": "#e74c3c"},
-                title="Colab risk segment distribution",
+                title="Vòng 3 risk segment distribution",
             )
             st.plotly_chart(fig, use_container_width=True)
         with right:
@@ -751,21 +751,21 @@ def main() -> None:
             )
             fig.update_yaxes(type="log")
             st.plotly_chart(fig, use_container_width=True)
-        st.write("**Top Colab review queue**")
+        st.write("**Top Vòng 3 review queue**")
         queue_cols = ["CUSTOMER_NUMBER", "final_risk_score", "Risk_Segment", "Business_Action", "Reason_Code_Details"]
         st.dataframe(master.sort_values("final_risk_score", ascending=False)[queue_cols].head(50), use_container_width=True, hide_index=True)
 
     with tab_colab_flow:
-        st.subheader("Notebook Colab logic mapped into local web demo")
+        st.subheader("Vòng 3 notebook logic mapped into local web demo")
         st.markdown(
             """
-1. Execute the business cells directly from `Another copy of Welcome To Colab`.
-2. Clean real CSV files from `Processed_Data/` into `outputs/colab_exact_cleaned/`.
+1. Execute the business cells directly from `Vòng_3_EAZII.ipynb`.
+2. Clean real CSV files from `Processed_Data/` into `outputs/vong3_cleaned/`.
 3. Build `df_baseline_trans_env.csv`, `df_baseline_behavior.csv`, and `df_baseline_financial.csv`.
 4. Merge them into `Customer_360_Master_Data.csv`.
-5. Compute Colab IQR amount threshold and five rule flags.
+5. Compute Vòng 3 IQR amount threshold and five rule flags.
 6. Create `Fraud`, `Risk_Segment`, `final_risk_score`, and `Reason_Code_Details`.
-7. Train the Colab XGBoost layer exactly as written in the notebook with an 80/20 train/test split (test set = 20%).
+7. Train the Vòng 3 XGBoost layer exactly as written in the notebook with an 80/20 train/test split (test set = 20%).
 8. Apply the hybrid matrix to create `Business_Action`.
 9. Measure business impact on the held-out 20% test set, matching the newest notebook KPI logic.
 10. Export figures, feature importance, SHAP evidence, and business-impact metrics.
@@ -819,7 +819,7 @@ def main() -> None:
                 f"Step-up only: **{rates['step_up']:.1%}** | "
                 f"Review coverage incl. watchlist: **{rates['review']:.1%}**"
             )
-        st.write("**Model validation against Colab weak labels**")
+        st.write("**Model validation against Vòng 3 weak labels**")
         st.json(metrics["model_metrics"])
 
     with tab_transaction:
@@ -1046,15 +1046,15 @@ def main() -> None:
         query = st.text_input("Enter CUSTOMER_NUMBER", value=default_customer)
         found = find_customer(query, master)
         if found.empty:
-            st.warning("Không tìm thấy CUSTOMER_NUMBER trong Colab Customer 360.")
+            st.warning("Không tìm thấy CUSTOMER_NUMBER trong Vòng 3 Customer 360.")
         else:
             row = found.iloc[0]
             st.info(advisor_text(row))
             show_case(row)
 
     with tab_xai:
-        st.subheader("xAI from Colab model")
-        st.caption("SHAP được sinh từ model học weak label của notebook Colab. Đây không phải confirmed fraud label.")
+        st.subheader("xAI from Vòng 3 model")
+        st.caption("SHAP được sinh từ model học weak label của notebook Vòng 3. Đây không phải confirmed fraud label.")
         c1, c2 = st.columns(2)
         with c1:
             show_image_if_exists(FIGURES_DIR / "colab_exact_figure_13.png", "Feature importance từ cell 19")

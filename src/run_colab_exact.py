@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 
 
-BUSINESS_CELL_INDICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23]
 SHAP_CELL_INDICES = {20, 21, 22}
 COLAB_RAW_DIR = "/content/drive/MyDrive/Gcontest/Processed_Data"
 COLAB_CLEANED_DIR = "/content/drive/MyDrive/Gcontest/cleaned"
@@ -67,10 +66,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the business cells from the user's Colab notebook with only local path/runtime shims."
     )
-    parser.add_argument("--notebook", default="Another copy of Welcome To Colab")
+    parser.add_argument("--notebook", default="Vòng_3_EAZII.ipynb")
     parser.add_argument("--raw-dir", default="Processed_Data")
-    parser.add_argument("--cleaned-dir", default="outputs/colab_exact_cleaned")
-    parser.add_argument("--figures-dir", default="outputs/colab_exact_figures")
+    parser.add_argument("--cleaned-dir", default="outputs/vong3_cleaned")
+    parser.add_argument("--figures-dir", default="outputs/vong3_figures")
     parser.add_argument("--skip-shap", action="store_true", help="Skip the original SHAP cells if local runtime is too slow.")
     return parser.parse_args()
 
@@ -82,6 +81,22 @@ def notebook_cells(notebook_path: Path) -> dict[int, str]:
         if cell.get("cell_type") == "code":
             cells[idx] = "".join(cell.get("source", []))
     return cells
+
+
+def business_cell_indices(cells: dict[int, str]) -> list[int]:
+    """Execute fraud workflow cells while skipping leftover Colab tutorial/demo cells."""
+    excluded_markers = [
+        "from google.colab import ai",
+        "seconds_in_a_day",
+        "seconds_in_a_week",
+        "Sample Visualization",
+    ]
+    selected: list[int] = []
+    for idx, source in sorted(cells.items()):
+        if any(marker in source for marker in excluded_markers):
+            continue
+        selected.append(idx)
+    return selected
 
 
 def patch_colab_source(source: str, raw_dir: Path, cleaned_dir: Path) -> str:
@@ -263,7 +278,7 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
 
     metrics = {
         "runner": "src/run_colab_exact.py",
-        "source_notebook": "Vòng_3_EAZII.ipynb / notebooks/colab_exact_business.ipynb",
+        "source_notebook": str(namespace.get("_source_notebook_path", "")),
         "execution_note": "Business cells were executed from the notebook source with only drive/path/shell-magic shims.",
         "data_source": str(raw_dir),
         "cleaned_output_dir": str(cleaned_dir),
@@ -331,14 +346,25 @@ def main() -> int:
     if not raw_dir.exists():
         raise FileNotFoundError(raw_dir)
 
+    os.environ["RAW_DIR"] = str(raw_dir)
+    os.environ["DATA_DIR"] = str(raw_dir)
+    os.environ["CLEANED_DIR"] = str(cleaned_dir)
+
     prepare_output_dirs(cleaned_dir, figures_dir)
     install_local_notebook_shims(figures_dir)
 
     cells = notebook_cells(notebook_path)
+    selected_cell_indices = business_cell_indices(cells)
     namespace = globals()
-    namespace.update({"__name__": "__colab_exact__", "display": globals()["display"]})
+    namespace.update(
+        {
+            "__name__": "__colab_exact__",
+            "display": globals()["display"],
+            "_source_notebook_path": str(notebook_path),
+        }
+    )
 
-    for idx in BUSINESS_CELL_INDICES:
+    for idx in selected_cell_indices:
         if args.skip_shap and idx in SHAP_CELL_INDICES:
             print(f"\n--- SKIP COLAB CELL {idx} (SHAP) ---")
             continue

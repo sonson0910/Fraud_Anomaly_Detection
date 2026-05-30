@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the business cells from the user's Colab notebook with only local path/runtime shims."
     )
-    parser.add_argument("--notebook", default="Vòng_3_EAZII_1.ipynb")
+    parser.add_argument("--notebook", default="Vong_3_EAZII_1.ipynb")
     parser.add_argument("--raw-dir", default="Processed_Data")
     parser.add_argument("--cleaned-dir", default="outputs/vong3_1_cleaned")
     parser.add_argument("--figures-dir", default="outputs/vong3_1_figures")

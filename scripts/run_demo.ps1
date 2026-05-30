@@ -22,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($VenvDir)) {
     $VenvDir = ".venv"
 }
 if ([string]::IsNullOrWhiteSpace($NotebookPath)) {
-    $NotebookPath = "Vòng_3_EAZII_1.ipynb"
+    $NotebookPath = "Vong_3_EAZII_1.ipynb"
 }
 if ([string]::IsNullOrWhiteSpace($ForceRebuild)) {
     $ForceRebuild = "0"

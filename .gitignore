@@ -28,6 +28,10 @@ outputs/colab_exact_cleaned/
 outputs/colab_exact_figures/
 outputs/vong3_cleaned/
 outputs/vong3_figures/
+outputs/vong3_1_cleaned/
+outputs/vong3_1_figures/
+outputs/vong3_1_runner_test/
+outputs/vong3_1_runner_figures/
 outputs/vong3_runner_test/
 outputs/vong3_runner_figures/
 Another copy of Welcome To Colab

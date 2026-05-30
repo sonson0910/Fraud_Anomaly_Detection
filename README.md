@@ -60,18 +60,18 @@ The real data folder and large generated CSVs are intentionally ignored by Git.
 
 ## Run The Round 3 Notebook Locally
 
-The root notebook `Vòng_3_EAZII.ipynb` is local-runnable. It no longer depends on Google Drive paths. By default it reads `./Processed_Data` and writes generated files to `./outputs/vong3_cleaned`.
+The root notebook `Vòng_3_EAZII_1.ipynb` is local-runnable. It no longer depends on Google Drive paths. By default it reads `./Processed_Data` and writes generated files to `./outputs/vong3_1_cleaned`.
 
 Run it from the repo root:
 
 ```bash
-RAW_DIR=Processed_Data CLEANED_DIR=outputs/vong3_cleaned jupyter nbconvert --execute --to notebook --output outputs/Vòng_3_EAZII_executed.ipynb "Vòng_3_EAZII.ipynb"
+RAW_DIR=Processed_Data CLEANED_DIR=outputs/vong3_1_cleaned jupyter nbconvert --execute --to notebook --output outputs/Vòng_3_EAZII_executed.ipynb "Vòng_3_EAZII_1.ipynb"
 ```
 
 On Windows PowerShell:
 
 ```powershell
-$env:RAW_DIR=".\Processed_Data"; $env:CLEANED_DIR="outputs\vong3_cleaned"; jupyter nbconvert --execute --to notebook --output outputs\Vòng_3_EAZII_executed.ipynb "Vòng_3_EAZII.ipynb"
+$env:RAW_DIR=".\Processed_Data"; $env:CLEANED_DIR="outputs\vong3_1_cleaned"; jupyter nbconvert --execute --to notebook --output outputs\Vòng_3_EAZII_executed.ipynb "Vòng_3_EAZII_1.ipynb"
 ```
 
 ## One-Command Demo With Real Data
@@ -106,7 +106,7 @@ or on Windows:
 powershell -ExecutionPolicy Bypass -File scripts/run_demo.ps1
 ```
 
-The script creates `.venv`, installs dependencies, executes the exact Vòng 3 notebook stored at `Vòng_3_EAZII.ipynb`, writes regenerated outputs to `outputs/vong3_cleaned/`, and starts Streamlit at:
+The script creates `.venv`, installs dependencies, executes the exact Vòng 3 notebook stored at `Vòng_3_EAZII_1.ipynb`, writes regenerated outputs to `outputs/vong3_1_cleaned/`, and starts Streamlit at:
 
 ```text
 http://localhost:8501
@@ -179,11 +179,11 @@ The Streamlit app includes an overview dashboard, data-insights tab, Customer 36
 The one-command script above is recommended. Manual equivalent:
 
 ```bash
-python src/run_colab_exact.py   --notebook "Vòng_3_EAZII.ipynb"   --raw-dir /path/to/Processed_Data   --cleaned-dir outputs/vong3_cleaned   --figures-dir outputs/vong3_figures
+python src/run_colab_exact.py   --notebook "Vòng_3_EAZII_1.ipynb"   --raw-dir /path/to/Processed_Data   --cleaned-dir outputs/vong3_1_cleaned   --figures-dir outputs/vong3_1_figures
 streamlit run streamlit_app.py
 ```
 
-This executes the exact business cells from `Vòng_3_EAZII.ipynb` and only patches local paths, shell magics, and `plt.show()`. It creates `Customer_360_Master_Data.csv`, Vòng 3 rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and the Streamlit dashboard. The generated output folder is intentionally ignored by Git because it is large.
+This executes the exact business cells from `Vòng_3_EAZII_1.ipynb` and only patches local paths, shell magics, and `plt.show()`. It creates `Customer_360_Master_Data.csv`, Vòng 3 rule flags, `Fraud` weak labels, `final_risk_score`, `Risk_Segment`, `Business_Action`, model metrics, feature importance, SHAP outputs, and the Streamlit dashboard. The generated output folder is intentionally ignored by Git because it is large.
 
 ## xAI And Stability
 

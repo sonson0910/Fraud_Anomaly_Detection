@@ -22,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($VenvDir)) {
     $VenvDir = ".venv"
 }
 if ([string]::IsNullOrWhiteSpace($NotebookPath)) {
-    $NotebookPath = "Vòng_3_EAZII.ipynb"
+    $NotebookPath = "Vòng_3_EAZII_1.ipynb"
 }
 if ([string]::IsNullOrWhiteSpace($ForceRebuild)) {
     $ForceRebuild = "0"
@@ -38,8 +38,8 @@ if (-not (Test-Path $VenvPython)) {
 & $VenvPython -m pip install --upgrade pip
 & $VenvPython -m pip install -r requirements.txt
 
-$CleanedDir = $(if ($env:CLEANED_DIR) { $env:CLEANED_DIR } else { "outputs/vong3_cleaned" })
-$FiguresDir = $(if ($env:FIGURES_DIR) { $env:FIGURES_DIR } else { "outputs/vong3_figures" })
+$CleanedDir = $(if ($env:CLEANED_DIR) { $env:CLEANED_DIR } else { "outputs/vong3_1_cleaned" })
+$FiguresDir = $(if ($env:FIGURES_DIR) { $env:FIGURES_DIR } else { "outputs/vong3_1_figures" })
 
 New-Item -ItemType Directory -Force -Path $CleanedDir, $FiguresDir | Out-Null
 

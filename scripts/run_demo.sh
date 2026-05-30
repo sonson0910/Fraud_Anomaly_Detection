@@ -8,10 +8,10 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-.venv}"
 PORT="${PORT:-8501}"
 DATA_DIR="${1:-${DATA_DIR:-Processed_Data}}"
-NOTEBOOK_PATH="${NOTEBOOK_PATH:-Vòng_3_EAZII.ipynb}"
+NOTEBOOK_PATH="${NOTEBOOK_PATH:-Vòng_3_EAZII_1.ipynb}"
 FORCE_REBUILD="${FORCE_REBUILD:-0}"
-CLEANED_DIR="${CLEANED_DIR:-outputs/vong3_cleaned}"
-FIGURES_DIR="${FIGURES_DIR:-outputs/vong3_figures}"
+CLEANED_DIR="${CLEANED_DIR:-outputs/vong3_1_cleaned}"
+FIGURES_DIR="${FIGURES_DIR:-outputs/vong3_1_figures}"
 
 if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"

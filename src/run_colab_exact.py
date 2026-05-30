@@ -66,10 +66,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the business cells from the user's Colab notebook with only local path/runtime shims."
     )
-    parser.add_argument("--notebook", default="Vòng_3_EAZII.ipynb")
+    parser.add_argument("--notebook", default="Vòng_3_EAZII_1.ipynb")
     parser.add_argument("--raw-dir", default="Processed_Data")
-    parser.add_argument("--cleaned-dir", default="outputs/vong3_cleaned")
-    parser.add_argument("--figures-dir", default="outputs/vong3_figures")
+    parser.add_argument("--cleaned-dir", default="outputs/vong3_1_cleaned")
+    parser.add_argument("--figures-dir", default="outputs/vong3_1_figures")
     parser.add_argument("--skip-shap", action="store_true", help="Skip the original SHAP cells if local runtime is too slow.")
     return parser.parse_args()
 
@@ -215,6 +215,10 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
     blocked = master.loc[business_action.eq("CRITICAL: BLOCK IMMEDIATELY")] if not business_action.empty else master.iloc[0:0]
     test_result = namespace.get("df_test_result")
     if not isinstance(test_result, pd.DataFrame):
+        test_result = namespace.get("df_test_actual")
+    if not isinstance(test_result, pd.DataFrame):
+        test_result = namespace.get("df_ml_run")
+    if not isinstance(test_result, pd.DataFrame):
         test_result = pd.DataFrame()
 
     cm = namespace.get("cm")
@@ -226,8 +230,14 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
         model_metrics["test_rows"] = int(len(namespace["y_test"]))
     if "X_train" in namespace:
         model_metrics["training_rows"] = int(len(namespace["X_train"]))
+        if "X_val" in namespace:
+            model_metrics["validation_rows"] = int(len(namespace["X_val"]))
     if model_metrics.get("test_rows") is not None and model_metrics.get("training_rows") is not None:
-        total_model_rows = model_metrics["test_rows"] + model_metrics["training_rows"]
+        total_model_rows = (
+            model_metrics["test_rows"]
+            + model_metrics["training_rows"]
+            + int(model_metrics.get("validation_rows", 0))
+        )
         model_metrics["test_fraction"] = (
             float(model_metrics["test_rows"] / total_model_rows) if total_model_rows else 0.0
         )
@@ -256,7 +266,16 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
     def weak_label_rate(mask: pd.Series) -> float:
         return float((weak_fraud & mask).sum() / weak_fraud_count) if weak_fraud_count else 0.0
 
-    test_action = test_result["Action"].astype(str) if "Action" in test_result.columns else pd.Series([], dtype=str)
+    if "Business_Action" in test_result.columns:
+        test_action = pd.Series("ALLOW", index=test_result.index, dtype="object")
+        business_action_test = test_result["Business_Action"].astype(str)
+        test_action.loc[business_action_test.eq("CRITICAL: BLOCK IMMEDIATELY")] = "BLOCK"
+        test_action.loc[business_action_test.eq("WARNING: REQUIRE STEP-UP EKYC/OTP")] = "EKYC"
+        test_action.loc[business_action_test.eq("MONITOR: ADD TO SPECIAL WATCHLIST")] = "WATCHLIST"
+    elif "Action" in test_result.columns:
+        test_action = test_result["Action"].astype(str)
+    else:
+        test_action = pd.Series([], dtype=str)
     test_block = test_action.eq("BLOCK")
     test_ekyc = test_action.eq("EKYC")
     test_watchlist = test_action.eq("WATCHLIST")

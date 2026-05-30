@@ -12,8 +12,8 @@ import streamlit as st
 from xgboost import XGBClassifier
 
 
-CLEANED_DIR = Path(os.environ.get("COLAB_CLEANED_DIR", "outputs/vong3_1_cleaned"))
-FIGURES_DIR = Path(os.environ.get("COLAB_FIGURES_DIR", "outputs/vong3_1_figures"))
+CLEANED_DIR = Path(os.environ.get("COLAB_CLEANED_DIR", "outputs/vong3_2_cleaned"))
+FIGURES_DIR = Path(os.environ.get("COLAB_FIGURES_DIR", "outputs/vong3_2_figures"))
 
 
 MASTER_COLS = [
@@ -698,7 +698,7 @@ def score_batch_transactions(
 def main() -> None:
     st.set_page_config(page_title="Vòng 3 Fraud Demo", layout="wide")
     st.title("Vòng 3 Fraud Prevention Demo")
-    st.caption("Demo này đọc output sinh trực tiếp từ `Vong_3_EAZII_1.ipynb`, chạy local bằng dữ liệu thật trong `Processed_Data/`.")
+    st.caption("Demo này đọc output sinh trực tiếp từ `Vong_3_EAZII_2.ipynb`, chạy local bằng dữ liệu thật trong `Processed_Data/`.")
 
     try:
         master, feature_importance, shap_importance, shap_local, metrics = load_colab_demo_data()
@@ -759,8 +759,8 @@ def main() -> None:
         st.subheader("Vòng 3 notebook logic mapped into local web demo")
         st.markdown(
             """
-1. Execute the business cells directly from `Vong_3_EAZII_1.ipynb`.
-2. Clean real CSV files from `Processed_Data/` into `outputs/vong3_1_cleaned/`.
+1. Execute the business cells directly from `Vong_3_EAZII_2.ipynb`.
+2. Clean real CSV files from `Processed_Data/` into `outputs/vong3_2_cleaned/`.
 3. Build `df_baseline_trans_env.csv`, `df_baseline_behavior.csv`, and `df_baseline_financial.csv`.
 4. Merge them into `Customer_360_Master_Data.csv`.
 5. Compute Vòng 3 IQR amount threshold and five rule flags.

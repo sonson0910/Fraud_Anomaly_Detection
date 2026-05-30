@@ -66,10 +66,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the business cells from the user's Colab notebook with only local path/runtime shims."
     )
-    parser.add_argument("--notebook", default="Vong_3_EAZII_1.ipynb")
+    parser.add_argument("--notebook", default="Vong_3_EAZII_2.ipynb")
     parser.add_argument("--raw-dir", default="Processed_Data")
-    parser.add_argument("--cleaned-dir", default="outputs/vong3_1_cleaned")
-    parser.add_argument("--figures-dir", default="outputs/vong3_1_figures")
+    parser.add_argument("--cleaned-dir", default="outputs/vong3_2_cleaned")
+    parser.add_argument("--figures-dir", default="outputs/vong3_2_figures")
     parser.add_argument("--skip-shap", action="store_true", help="Skip the original SHAP cells if local runtime is too slow.")
     return parser.parse_args()
 
@@ -334,7 +334,7 @@ def write_metrics(cleaned_dir: Path, raw_dir: Path, figures_dir: Path, namespace
             "challenge_coverage_against_rule_label": weak_label_rate(challenged_mask),
             "review_coverage_against_rule_label": weak_label_rate(reviewed_mask),
             "test_rows": test_count,
-            "test_action_distribution": safe_series_counts(test_result, "Action") if not test_result.empty else {},
+            "test_action_distribution": test_action.value_counts(dropna=False).to_dict() if test_count else {},
             "test_blocked_accounts": int(test_block.sum()),
             "test_ekyc_accounts": int(test_ekyc.sum()),
             "test_watchlist_accounts": int(test_watchlist.sum()),

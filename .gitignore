@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ipynb_checkpoints/
+wheelhouse/
 
 .DS_Store
 *.log
@@ -35,3 +36,7 @@ outputs/vong3_1_runner_figures/
 outputs/vong3_runner_test/
 outputs/vong3_runner_figures/
 Another copy of Welcome To Colab
+outputs/vong3_2_cleaned/
+outputs/vong3_2_figures/
+outputs/vong3_2_runner_test/
+outputs/vong3_2_runner_figures/
